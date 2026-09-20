@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>College HQ</title>
+<meta name="description" content="Dashboard for your first semester at Douglas College — classes, timetable, assignments, planner, and notes.">
+<meta name="theme-color" content="#0b1220">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="icon" href="icons/favicon-16.png" sizes="16x16" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="College HQ">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <header class="app-header">
+    <div class="brand">
+      <img src="icons/icon-192.png" alt="" class="brand-icon">
+      <div class="brand-text">
+        <h1>College HQ</h1>
+        <p>Douglas College · Associate of Science · First Semester</p>
+      </div>
+    </div>
+    <button id="installBtn" class="btn btn-gold" hidden>Install App</button>
+  </header>
+
+  <nav class="tabs" aria-label="Sections">
+    <button class="tab-btn active" data-tab="overview">Overview</button>
+    <button class="tab-btn" data-tab="classes">Classes</button>
+    <button class="tab-btn" data-tab="timetable">Timetable</button>
+    <button class="tab-btn" data-tab="assignments">Assignments</button>
+    <button class="tab-btn" data-tab="planner">Planner</button>
+    <button class="tab-btn" data-tab="notes">Notes</button>
+  </nav>
+
+  <main class="tab-content">
+
+    <!-- OVERVIEW -->
+    <section id="tab-overview" class="tab-pane active">
+      <div class="stat-grid">
+        <div class="stat-card">
+          <span class="stat-value" id="statClasses">0</span>
+          <span class="stat-label">Classes</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value" id="statOpen">0</span>
+          <span class="stat-label">Open assignments</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value" id="statDueSoon">0</span>
+          <span class="stat-label">Due within 7 days</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value" id="statDaysUntil">—</span>
+          <span class="stat-label">Days until term start</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Term start date</h2>
+        <div class="field-row">
+          <label for="termStartInput">First day of classes</label>
+          <input type="date" id="termStartInput">
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Backup &amp; restore</h2>
+        <p class="muted">Everything is stored on this device only, in IndexedDB. Download a backup regularly and keep the file somewhere safe.</p>
+        <div class="btn-row">
+          <button id="downloadAllBtn" class="btn btn-gold">Download all data (JSON)</button>
+          <label class="btn btn-outline file-btn">
+            Restore from backup
+            <input type="file" id="restoreInput" accept="application/json,.json" hidden>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- CLASSES -->
+    <section id="tab-classes" class="tab-pane">
+      <div class="section-head">
+        <h2>Classes</h2>
+        <button id="addClassBtn" class="btn btn-gold">+ Add class</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table" id="classesTable">
+          <thead>
+            <tr><th>Code</th><th>Name</th><th>Instructor</th><th>Room</th><th></th></tr>
+          </thead>
+          <tbody id="classesBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- TIMETABLE -->
+    <section id="tab-timetable" class="tab-pane">
+      <div class="section-head">
+        <h2>Timetable</h2>
+        <button id="addRowBtn" class="btn btn-gold">+ Add time slot</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table" id="timetableTable">
+          <thead>
+            <tr><th>Time</th><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th></th></tr>
+          </thead>
+          <tbody id="timetableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ASSIGNMENTS -->
+    <section id="tab-assignments" class="tab-pane">
+      <div class="section-head">
+        <h2>Assignments</h2>
+        <div class="btn-row">
+          <label class="btn btn-outline file-btn">
+            Import CSV
+            <input type="file" id="importCsvInput" accept=".csv,text/csv" hidden>
+          </label>
+          <button id="exportCsvBtn" class="btn btn-outline">Export CSV</button>
+          <button id="exportMdBtn" class="btn btn-outline">Export Markdown</button>
+        </div>
+      </div>
+
+      <form id="addAssignmentForm" class="inline-form">
+        <input type="text" id="assignTitle" placeholder="Assignment title" required>
+        <select id="assignClass"></select>
+        <input type="date" id="assignDue">
+        <button type="submit" class="btn btn-gold">+ Add</button>
+      </form>
+
+      <p class="muted hint">CSV columns: <code>title, class, due date</code> (with a header row).</p>
+
+      <ul class="assignment-list" id="assignmentList"></ul>
+    </section>
+
+    <!-- PLANNER -->
+    <section id="tab-planner" class="tab-pane">
+      <div class="section-head">
+        <h2>Weekly planner</h2>
+      </div>
+      <div class="planner-grid" id="plannerGrid"></div>
+    </section>
+
+    <!-- NOTES -->
+    <section id="tab-notes" class="tab-pane">
+      <div class="section-head">
+        <h2>Notes</h2>
+        <div class="btn-row">
+          <button id="addNoteBtn" class="btn btn-gold">+ New note</button>
+          <button id="exportNotesBtn" class="btn btn-outline">Export Markdown</button>
+        </div>
+      </div>
+      <div class="notes-grid" id="notesGrid"></div>
+    </section>
+
+  </main>
+
+  <footer class="app-footer">
+    <span id="dbStatus" class="muted">Loading…</span>
+  </footer>
+</div>
+
+<script src="js/db.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
