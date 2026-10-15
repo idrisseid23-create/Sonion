@@ -14,6 +14,11 @@ tuning change without opening Studio.
 The simulation is a simplified stand-in for Roblox physics. Passing tests mean the maths and
 the logic are right; the final check is always driving it in Studio.
 
+- `preview/` draws the cars. `export.luau` builds each car with the real `CarBuilder` and
+  `CarLooks` (inside the API checker) and saves every visible part; `render.mjs` draws them
+  with three.js in a headless browser, next to blocky avatars for scale, and saves pictures
+  from several angles. Use it to check a design change before opening Studio.
+
 ## Run them
 
 Needs `curl`, `g++`, `python3` and `npm`.
@@ -24,3 +29,15 @@ cd roblox/tests
 ./luaurun physics_test.luau   # ends with ALL PASSED
 ./luaurun api_test.luau       # ends with API CHECK PASSED
 ```
+
+Car pictures (also needs `node`; the first time, run `npm install` in `preview/`):
+
+```
+./luaurun preview/export.luau > preview/cars.json
+cd preview && node render.mjs              # every car, every angle, into preview/out/
+cd preview && node render.mjs Bolt hero    # one car, one angle (hero, rear, side, front, back, top, chase)
+cd preview && node render.mjs Bolt lineup  # all three side by side
+```
+
+It uses Chromium's headless shell from `/opt/pw-browsers` if it is there; otherwise run
+`npx playwright install chromium` once in `preview/`. Set `CHROMIUM` to use another browser.

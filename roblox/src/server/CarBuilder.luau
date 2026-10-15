@@ -1,20 +1,22 @@
 -- CarBuilder
--- Builds the placeholder car out of plain parts: a box body, a glass cabin, four cylinder
--- wheels and a seat. Swap in a real model later; the driving only needs the same names:
+-- Builds a car: the invisible physics body, the seat, the wheels, and (through CarLooks)
+-- everything you see. The driving only needs these names, so a real model can replace
+-- the looks later:
 --
 --   Car (Model, tagged "Car", attribute CarType)
---     Chassis (Part, PrimaryPart)       the physics body
+--     Chassis (Part, PrimaryPart)       the physics body (an invisible box)
 --       WheelFL / WheelFR / WheelRL / WheelRR (Attachments)  suspension top of each wheel
 --       ForceAttachment, CarForce (VectorForce), CarTorque (Torque)
+--     Cabin (Part)                      invisible box so roof landings are real
 --     DriverSeat (Seat)
 --     Wheels (Folder) with WheelFL... parts, each joined to the Chassis by a Motor6D "Axle"
+--     Body (Folder)                     the parts you see (no mass, no collisions)
 
 local CollectionService = game:GetService("CollectionService")
 
-local CarBuilder = {}
+local CarLooks = require(script.Parent:WaitForChild("CarLooks"))
 
-local DARK = Color3.fromRGB(30, 32, 38)
-local CARDBOARD = Color3.fromRGB(192, 138, 74)
+local CarBuilder = {}
 
 local function part(props): Part
 	local p = Instance.new("Part")
@@ -32,16 +34,6 @@ local function part(props): Part
 	return p
 end
 
--- Decorative parts: no mass, no collisions, no raycast hits.
-local function decor(props): Part
-	local p = part(props)
-	p.Massless = true
-	p.CanCollide = false
-	p.CanQuery = false
-	p.CanTouch = false
-	return p
-end
-
 local function weld(a: BasePart, b: BasePart)
 	local w = Instance.new("WeldConstraint")
 	w.Part0 = a
@@ -53,7 +45,12 @@ end
 function CarBuilder.Build(tune, cframe: CFrame): Model
 	local body = tune.Body
 	local wheels = tune.Wheels
+	local look = tune.Look
 	local size = body.Size
+	-- Look positions are drawn with the ground at y = 0; this turns them into body space.
+	local function fromDrawing(v: Vector3): Vector3
+		return v - Vector3.new(0, look.DesignRide, 0)
+	end
 
 	local model = Instance.new("Model")
 	model.Name = tune.Name
@@ -64,7 +61,7 @@ function CarBuilder.Build(tune, cframe: CFrame): Model
 		Name = "Chassis",
 		Size = size,
 		CFrame = cframe,
-		Color = body.Color,
+		Transparency = 1,
 		CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.25, 0, 1, 1),
 		RootPriority = 127, -- stays the root even with a driver sitting in it
 	})
@@ -89,60 +86,25 @@ function CarBuilder.Build(tune, cframe: CFrame): Model
 	ballast.Parent = model
 	weld(chassis, ballast)
 
-	-- Cabin (glass so you can see the driver). It collides, so roof landings are real.
+	-- Cabin collision box. It collides, so roof landings are real.
 	local cabinSize = body.CabinSize
 	local cabin = part({
 		Name = "Cabin",
 		Size = cabinSize,
 		CFrame = cframe * CFrame.new(body.CabinOffset + Vector3.new(0, size.Y / 2 + cabinSize.Y / 2, 0)),
-		Color = body.CabinColor,
-		Material = Enum.Material.Glass,
-		Transparency = 0.35,
+		Transparency = 1,
 		Massless = true,
+		CanTouch = false,
 		CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.25, 0, 1, 1),
 	})
 	cabin.Parent = model
 	weld(chassis, cabin)
 
-	if body.RoofBox then
-		local box = decor({
-			Name = "PackageBox",
-			Size = Vector3.new(cabinSize.X * 0.7, 1.2, cabinSize.Z * 0.6),
-			CFrame = cabin.CFrame * CFrame.new(0, cabinSize.Y / 2 + 0.6, 0),
-			Color = CARDBOARD,
-			Material = Enum.Material.Cardboard,
-		})
-		box.Parent = model
-		weld(chassis, box)
-	end
-
-	-- Lights so you can tell the front from the back.
-	for _, side in { -1, 1 } do
-		local head = decor({
-			Name = "Headlight",
-			Size = Vector3.new(1.2, 0.5, 0.2),
-			CFrame = cframe * CFrame.new(side * (size.X / 2 - 1), size.Y * 0.15, -size.Z / 2 - 0.05),
-			Color = Color3.fromRGB(255, 244, 214),
-			Material = Enum.Material.Neon,
-		})
-		head.Parent = model
-		weld(chassis, head)
-		local tail = decor({
-			Name = "Taillight",
-			Size = Vector3.new(1.2, 0.5, 0.2),
-			CFrame = cframe * CFrame.new(side * (size.X / 2 - 1), size.Y * 0.15, size.Z / 2 + 0.05),
-			Color = Color3.fromRGB(255, 40, 40),
-			Material = Enum.Material.Neon,
-		})
-		tail.Parent = model
-		weld(chassis, tail)
-	end
-
-	-- Seat inside the cabin. Drive with the prompt (E) instead of walking into it.
+	-- Seat where the drawing puts it. Drive with the prompt (E) instead of walking into it.
 	local seat = Instance.new("Seat")
 	seat.Name = "DriverSeat"
 	seat.Size = Vector3.new(2, 1, 2)
-	seat.CFrame = cframe * CFrame.new(-size.X / 4, size.Y / 2 + 0.5, body.CabinOffset.Z)
+	seat.CFrame = cframe * CFrame.new(fromDrawing(look.Seat))
 	seat.Transparency = 1
 	seat.CanCollide = false
 	seat.CanTouch = false -- get in with the prompt only (stops re-sitting by bumping it when you get out)
@@ -181,6 +143,9 @@ function CarBuilder.Build(tune, cframe: CFrame): Model
 	torque.Torque = Vector3.zero
 	torque.Parent = chassis
 
+	-- Everything you see.
+	CarLooks.Dress(model, chassis, tune)
+
 	-- Wheels: an attachment marks where each suspension starts; the wheel part is only
 	-- for looks (it spins and steers on every player's screen).
 	local wheelFolder = Instance.new("Folder")
@@ -201,24 +166,14 @@ function CarBuilder.Build(tune, cframe: CFrame): Model
 		attachment.Parent = chassis
 
 		-- Roblox cylinders lie along their X axis, which is the axle here.
-		local wheel = decor({
+		local wheel = CarLooks.Tyre(tune, {
 			Name = name,
 			Shape = Enum.PartType.Cylinder,
 			Size = Vector3.new(wheels.Width, radius * 2, radius * 2),
 			CFrame = cframe * CFrame.new(mount),
-			Color = DARK,
 		})
 		wheel.Parent = wheelFolder
-
-		-- A light stripe across the tyre so you can see it spin.
-		local stripe = decor({
-			Name = "Stripe",
-			Size = Vector3.new(wheels.Width + 0.05, radius * 2 - 0.1, 0.35),
-			CFrame = wheel.CFrame,
-			Color = Color3.fromRGB(200, 200, 200),
-		})
-		stripe.Parent = wheel
-		weld(wheel, stripe)
+		CarLooks.DressWheel(tune, wheel, left)
 
 		local axle = Instance.new("Motor6D")
 		axle.Name = "Axle"

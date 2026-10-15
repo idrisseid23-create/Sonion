@@ -1,17 +1,27 @@
 # Delivery game: driving scripts (Roblox)
 
-The base driving for the delivery game, built from the Driving blueprint. It uses one box car
-(plain parts, cylinder wheels, no model yet) with all the handling:
+The base driving for the delivery game, built from the Driving blueprint, and three small,
+chunky cars built from plain Roblox parts (no meshes), designed from the Cars blueprint:
+
+![Bolt, Mule and Kite next to an avatar](docs/cars/lineup.png)
+
+| Bolt (starter) | Mule (heavy hauler) | Kite (stunt buggy) |
+|---|---|---|
+| ![Bolt](docs/cars/Bolt-hero.png) | ![Mule](docs/cars/Mule-hero.png) | ![Kite](docs/cars/Kite-hero.png) |
+| Orange courier 4x4: flared fenders, round headlights, a bolt stripe, a parcel strapped to the roof rack and a spare wheel on the back. | White box van: the cargo box hangs over the cab, an orange stripe and a big parcel logo, barn doors and mud flaps. | Cyan dune buggy: white roll cage with rally lights, open wheels with orange hubs, a crate behind the seat, an open engine and a rear wing. |
+
+Each car is about two avatars long, and your avatar sits inside, visible through the windows.
+The handling:
 
 - **Suspension:** one spring per wheel, with ray or sphere casts down from each corner.
 - **Engine and speed:** gas, brakes and reverse. The speed curve reaches top speed (115 km/h) in about 3.5 s.
-- **Steering:** narrows as you go faster (30° slow, 10° at top speed).
+- **Steering:** narrows as you go faster (28° slow, 8° at top speed).
 - **Grip, then slide:** normal driving holds the road. The handbrake swings the back out into a drift you can hold.
 - **Air:** jumps, air control, flips, clean landings (they auto-straighten), crashes, and a 1-second respawn.
 - **Boost:** a meter filled by drifting, airtime, flips and clean landings.
 - **Camera:** a chase camera with lag that widens its view at speed, keeps the horizon level in the air, and swings out in drifts.
 - **Controls:** keyboard, gamepad and phone buttons.
-- **Three cars:** Bolt, Mule and Kite, as tuning presets on the same code.
+- **Three cars:** Bolt, Mule and Kite: each has its own look and handling, on the same code.
 
 ## What's in here
 
@@ -24,7 +34,8 @@ The base driving for the delivery game, built from the Driving blueprint. It use
 | `src/shared/CarCamera.luau` | ModuleScript **CarCamera** | Chase camera |
 | `src/shared/CarHud.luau` | ModuleScript **CarHud** | Speed, boost, pop-ups, phone buttons |
 | `src/shared/WheelVisuals.luau` | ModuleScript **WheelVisuals** | Spins and steers the wheels for everyone |
-| `src/server/CarBuilder.luau` | ModuleScript **CarBuilder** | Builds the box car |
+| `src/server/CarBuilder.luau` | ModuleScript **CarBuilder** | Builds a car: physics body, seat, wheels |
+| `src/server/CarLooks.luau` | ModuleScript **CarLooks** | Draws each car's body and wheels out of parts |
 | `src/server/CarServer.server.luau` | Script **CarServer** | Spawns cars, get in/out, parked cars |
 | `src/client/CarClient.client.luau` | LocalScript **CarClient** | Starts the driving when you sit in a car |
 
@@ -37,7 +48,8 @@ The base driving for the delivery game, built from the Driving blueprint. It use
    text and paste in the matching file from `src/shared/`.
 3. **ServerScriptService:** add a **Folder** named `CarSystem`. Inside it, add:
    - a **Script** named `CarServer`, with `src/server/CarServer.server.luau` pasted in;
-   - a **ModuleScript** named `CarBuilder`, with `src/server/CarBuilder.luau` pasted in.
+   - a **ModuleScript** named `CarBuilder`, with `src/server/CarBuilder.luau` pasted in;
+   - a **ModuleScript** named `CarLooks`, with `src/server/CarLooks.luau` pasted in.
 4. **StarterPlayer → StarterPlayerScripts:** add a **LocalScript** named `CarClient` and paste
    in `src/client/CarClient.client.luau`.
 5. Press **Play**. A car appears in front of you. Walk up to it and press **E** to drive.
@@ -123,6 +135,7 @@ Most useful knobs:
 | Leans too much in turns | raise `Tires.ForceHeight` or `Suspension.AntiRoll` |
 | Spins faster in the air | `Air.PitchRate`, `Air.RollRate`, `Air.YawRate` |
 | Jumps land too easily | lower `Air.AutoLevel` (0 turns the self-levelling off) |
+| New paint colours | `Look.Colors` (Paint, Accent, Rim and Hub are the paint slots) |
 
 Speeds are in studs per second (1 stud ≈ 0.28 m, so 1 studs/s ≈ 1 km/h). Mule and Kite only
 list what they change from Bolt.
@@ -138,6 +151,20 @@ list what they change from Bolt.
 - **The wheels you see are just for looks.** Each player's computer spins and steers them
   locally, so they cost nothing on the network.
 
+## How the cars are built
+
+`CarBuilder` makes the parts the physics needs, all invisible: the **Chassis** box (the body you
+crash with), a **Cabin** box (so roof landings are real), a hidden weight that sets the centre
+of mass, and the seat. Their sizes are `Body` in CarConfig. `CarLooks` then draws everything you
+see around them: about 90 to 150 plain parts per car (blocks, wedges, cylinders and balls),
+with no mass and no collisions, welded on. The wheels are a tyre part each with a rim, spokes
+and hub welded to it; `WheelVisuals` spins and steers them.
+
+To change a design, edit that car's function in `CarLooks` (`hatchback`, `van` or `buggy`).
+Drawings use studs with the ground at y = 0 and the front towards -Z. To check your change
+without Studio, render it (see `tests/README.md`). Parts in a paint slot carry a `PaintSlot`
+attribute, so a paint shop can recolour them later.
+
 ## Swapping in a real model later
 
 Keep these names and the driving works unchanged:
@@ -150,14 +177,14 @@ Keep these names and the driving works unchanged:
 - A **Wheels** folder: one part per wheel, joined to the Chassis by a Motor6D named `Axle`.
   Body parts should be Massless and welded to the Chassis.
 
-The easiest way is to change `CarBuilder` so it welds your mesh parts onto the box instead of
-building the box.
+The easiest way is to add a new style to `CarLooks` that welds your mesh parts on instead of
+drawing the parts.
 
 ## Known limits and next steps
 
-- **Not tried in Studio yet.** It was tested here, outside Roblox, with a physics simulation
-  and an API checker (see `tests/`), and every test passes. The first real check is pressing
-  Play. If anything feels off, write down what you did and what happened.
+- **Only partly tried in Studio.** It was tested here, outside Roblox, with a physics
+  simulation, an API checker and 3D renders of the cars (see `tests/`), and every test passes.
+  If anything feels or looks off in Studio, write down what you did and what happened.
 - If a car shakes or jitters on some surfaces, try `Suspension.CastShape = "Ray"`.
 - **Not built yet:**
   - sounds (engine pitch from `physics.Speed`, tyre squeal from `wheel.Sliding`);

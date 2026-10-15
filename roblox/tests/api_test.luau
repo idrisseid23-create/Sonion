@@ -23,6 +23,7 @@ end
 local serverFolder = R.new("Folder")
 serverFolder.Name = "CarSystem"
 serverFolder.Parent = R.ServerScriptService
+R.module("CarLooks", SRC .. "/server/CarLooks.luau", serverFolder)
 R.module("CarBuilder", SRC .. "/server/CarBuilder.luau", serverFolder)
 
 -- A player with a character

@@ -1,0 +1,10 @@
+{
+  "name": "car-preview",
+  "private": true,
+  "description": "Renders the cars CarBuilder makes, for checking the design without Studio",
+  "type": "module",
+  "dependencies": {
+    "playwright": "1.48.2",
+    "three": "0.169.0"
+  }
+}

@@ -5,6 +5,8 @@
 -- Units: Roblox works in studs. 1 metre is about 3.57 studs (1 stud = 0.28 m), so
 -- values are written as "metres * M" where that keeps them readable.
 
+local CarMath = require(script.Parent.CarMath)
+
 local M = 1 / 0.28 -- studs per metre
 local DEG = math.pi / 180
 
@@ -23,29 +25,58 @@ local Base = {
 	Gravity = 60,
 
 	----------------------------------------------------------------------------------
-	-- Shape of the placeholder car (CarBuilder uses these; the physics reads the
-	-- wheel positions from the attachments the builder makes).
+	-- Size and shape. The physics uses the invisible collision boxes (Body) and the
+	-- wheel positions; CarLooks draws the car you see around them (Look).
+	-- Sizes here are in studs: the cars are small and chunky, about two avatars long.
 	----------------------------------------------------------------------------------
 	Body = {
-		Size = Vector3.new(1.9 * M, 0.62 * M, 4.0 * M), -- width, height, length of the main box
-		CabinSize = Vector3.new(1.7 * M, 0.7 * M, 2.0 * M),
-		CabinOffset = Vector3.new(0, 0, 0.25 * M), -- + is towards the back
-		Color = Color3.fromRGB(255, 122, 26),
-		CabinColor = Color3.fromRGB(143, 211, 234),
-		RoofBox = true, -- the package box on the roof
+		Size = Vector3.new(5.8, 2.4, 10.8), -- collision box of the lower body: width, height, length
+		CabinSize = Vector3.new(4.6, 3.05, 5.1), -- collision box of the cabin, on top of the body
+		CabinOffset = Vector3.new(0, 0, 1.8), -- + is towards the back
+		RoofHeight = 5.9, -- top of the car (the parcel) above the body centre
 	},
 
 	Wheels = {
-		Radius = 0.4 * M,
-		Width = 0.3 * M,
-		WheelBase = 2.5 * M, -- front axle to rear axle
-		TrackWidth = 1.95 * M, -- left wheel centre to right wheel centre
-		MountHeight = -0.1 * M, -- where the suspension top sits, relative to the body centre
+		Radius = 1.35,
+		Width = 1.0, -- tread width (the tyre wall adds a little each side)
+		WheelBase = 6.6, -- front axle to rear axle
+		TrackWidth = 5.0, -- left wheel centre to right wheel centre
+		-- Where the suspension top sits relative to the body centre, worked out so the body
+		-- centre rests 2 studs off the ground (it must match Look.DesignRide).
+		MountHeight = CarMath.mountHeightFor(2.0, 1.35, 0.3 * M, 2.6, 60),
 	},
 
 	-- Where the centre of mass sits relative to the body centre. Low and a little forward
 	-- (negative Z is forward). The builder adds a hidden weight to get it there.
-	CenterOfMass = Vector3.new(0, -0.15 * M, -0.15 * M),
+	CenterOfMass = Vector3.new(0, -0.5, -0.4),
+
+	-- What the car looks like (CarLooks builds it). Colour slots marked "paint" can be
+	-- swapped for unlockable paint jobs; the parcel always stays cardboard.
+	Look = {
+		Style = "Hatchback",
+		DesignRide = 2.0, -- the body is drawn with its centre this high off the ground
+		Seat = Vector3.new(0, 1.55, 0.55), -- centre of the driver's seat, as drawn (ground = 0)
+		WheelLift = 0.4, -- wheels never look higher than this above their resting spot
+		Colors = {
+			Paint = Color3.fromRGB(255, 122, 26), -- paint: body
+			Accent = Color3.fromRGB(246, 242, 232), -- paint: roof and stripe
+			Rim = Color3.fromRGB(244, 242, 236), -- paint: wheel rims
+			Hub = Color3.fromRGB(255, 122, 26), -- paint: wheel centres
+			Trim = Color3.fromRGB(38, 41, 48),
+			Glass = Color3.fromRGB(143, 211, 234),
+			Light = Color3.fromRGB(255, 244, 214),
+			Tail = Color3.fromRGB(255, 48, 48),
+			Indicator = Color3.fromRGB(255, 170, 40),
+			Plate = Color3.fromRGB(250, 250, 246),
+			Tyre = Color3.fromRGB(34, 36, 41),
+			Spoke = Color3.fromRGB(150, 156, 166),
+			Chrome = Color3.fromRGB(176, 182, 191),
+			Interior = Color3.fromRGB(52, 56, 66),
+			Cardboard = Color3.fromRGB(192, 138, 74),
+			Tape = Color3.fromRGB(226, 198, 146),
+			Strap = Color3.fromRGB(30, 32, 38),
+		},
+	},
 
 	----------------------------------------------------------------------------------
 	-- Engine, brakes, reverse
@@ -74,8 +105,8 @@ local Base = {
 	-- Steering
 	----------------------------------------------------------------------------------
 	Steering = {
-		MaxAngleSlow = 30 * DEG,
-		MaxAngleFast = 10 * DEG, -- at top speed
+		MaxAngleSlow = 28 * DEG,
+		MaxAngleFast = 8 * DEG, -- at top speed (the cars are short, so small angles turn plenty)
 		WheelTurnSpeed = 6, -- radians per second the front wheels can turn
 	},
 
@@ -213,10 +244,10 @@ local Base = {
 	-- Camera
 	----------------------------------------------------------------------------------
 	Camera = {
-		Distance = 6 * M,
-		Height = 2.2 * M,
+		Distance = 4.2 * M,
+		Height = 1.7 * M,
 		FocusHeight = 0.5 * M,
-		LookAhead = 4 * M,
+		LookAhead = 3.5 * M,
 		Lag = 0.15, -- seconds
 		FovSlow = 70,
 		FovFast = 85,
@@ -225,8 +256,8 @@ local Base = {
 		SpeedPullBack = 1.2 * M, -- camera sits a bit further back at top speed
 		OrbitReturnDelay = 1.2,
 		Modes = {
-			{ Name = "Chase", Distance = 6 * M, Height = 2.2 * M },
-			{ Name = "Far", Distance = 9 * M, Height = 3.2 * M },
+			{ Name = "Chase", Distance = 4.2 * M, Height = 1.7 * M },
+			{ Name = "Far", Distance = 7 * M, Height = 2.7 * M },
 			{ Name = "Hood", Hood = true },
 		},
 	},
@@ -241,19 +272,38 @@ CarConfig.Cars = {
 
 	Mule = {
 		Name = "Mule",
+		-- Box van: white, tall cargo box with an orange stripe, dark grey underneath.
 		Body = {
-			Size = Vector3.new(2.1 * M, 0.8 * M, 4.6 * M),
-			CabinSize = Vector3.new(2.0 * M, 1.2 * M, 2.9 * M),
-			CabinOffset = Vector3.new(0, 0, 0.5 * M),
-			Color = Color3.fromRGB(69, 196, 234),
-			CabinColor = Color3.fromRGB(240, 236, 226),
-			RoofBox = false,
+			Size = Vector3.new(6.6, 2.5, 11.4),
+			CabinSize = Vector3.new(6.3, 4.9, 8.6), -- the cargo box
+			CabinOffset = Vector3.new(0, 0, 1.4),
+			RoofHeight = 6.1,
 		},
-		Wheels = { Radius = 0.42 * M, WheelBase = 2.9 * M, TrackWidth = 2.1 * M },
-		CenterOfMass = Vector3.new(0, -0.1 * M, -0.1 * M),
+		Wheels = {
+			Radius = 1.45,
+			Width = 1.1,
+			WheelBase = 7.0,
+			TrackWidth = 5.4,
+			MountHeight = CarMath.mountHeightFor(2.15, 1.45, 0.35 * M, 2.2, 60),
+		},
+		CenterOfMass = Vector3.new(0, -0.35, -0.2),
+		Look = {
+			Style = "Van",
+			DesignRide = 2.15,
+			Seat = Vector3.new(0, 1.9, -2.3),
+			WheelLift = 0.25,
+			Colors = {
+				Paint = Color3.fromRGB(244, 241, 234),
+				Accent = Color3.fromRGB(255, 122, 26),
+				Rim = Color3.fromRGB(112, 118, 130),
+				Hub = Color3.fromRGB(196, 200, 207),
+				Spoke = Color3.fromRGB(72, 77, 88),
+				Lower = Color3.fromRGB(85, 91, 102),
+			},
+		},
 		Engine = { TopSpeed = 27 * M, TimeToTopSpeed = 4.3 },
 		Brakes = { TimeFromTopSpeed = 1.7 },
-		Steering = { MaxAngleSlow = 28 * DEG, MaxAngleFast = 9 * DEG },
+		Steering = { MaxAngleSlow = 25 * DEG, MaxAngleFast = 7 * DEG },
 		Suspension = { Travel = 0.35 * M, Frequency = 2.2, DampingRatio = 0.8 },
 		Tires = { Grip = 90, GripRate = 16 },
 		Air = { PitchRate = 120 * DEG, RollRate = 120 * DEG, YawRate = 90 * DEG },
@@ -262,15 +312,35 @@ CarConfig.Cars = {
 
 	Kite = {
 		Name = "Kite",
+		-- Stunt buggy: low cyan tub, white roll cage, open wheels, rear wing.
 		Body = {
-			Size = Vector3.new(1.8 * M, 0.5 * M, 3.8 * M),
-			CabinSize = Vector3.new(1.4 * M, 0.75 * M, 1.6 * M),
-			CabinOffset = Vector3.new(0, 0, 0.2 * M),
-			Color = Color3.fromRGB(255, 184, 31),
-			CabinColor = Color3.fromRGB(60, 64, 74),
-			RoofBox = false,
+			Size = Vector3.new(6.4, 1.6, 9.8), -- as wide as the wheels: they hit walls first
+			CabinSize = Vector3.new(3.4, 3.4, 3.0), -- the roll cage
+			CabinOffset = Vector3.new(0, 0, -0.2),
+			RoofHeight = 4.35,
 		},
-		Wheels = { Radius = 0.45 * M, WheelBase = 2.4 * M, TrackWidth = 1.95 * M },
+		Wheels = {
+			Radius = 1.5,
+			Width = 1.2,
+			WheelBase = 6.4,
+			TrackWidth = 5.6,
+			MountHeight = CarMath.mountHeightFor(1.8, 1.5, 0.4 * M, 2.3, 60),
+		},
+		CenterOfMass = Vector3.new(0, -0.35, 0),
+		Look = {
+			Style = "Buggy",
+			DesignRide = 1.8,
+			Seat = Vector3.new(0, 1.5, -0.1),
+			WheelLift = 2, -- open wheels: nothing to hit
+			Colors = {
+				Paint = Color3.fromRGB(63, 193, 232),
+				Accent = Color3.fromRGB(246, 242, 232),
+				Rim = Color3.fromRGB(42, 47, 56),
+				Hub = Color3.fromRGB(255, 122, 26),
+				Spoke = Color3.fromRGB(255, 122, 26),
+				Trim = Color3.fromRGB(42, 47, 56),
+			},
+		},
 		Engine = { TopSpeed = 35 * M, TimeToTopSpeed = 3.2 },
 		Suspension = { Travel = 0.4 * M, Frequency = 2.3, DampingRatio = 0.65 },
 		Tires = { Grip = 95, GripRate = 17 },

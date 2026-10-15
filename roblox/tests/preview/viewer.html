@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Car preview</title>
+<style>
+  html, body { margin: 0; background: #9fb4c8; overflow: hidden; }
+  canvas { display: block; }
+  #label { position: absolute; left: 14px; top: 10px; font: 600 18px system-ui, sans-serif; color: #10131a; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "./node_modules/three/build/three.module.js",
+  "three/addons/": "./node_modules/three/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="label"></div>
+<script type="module">
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+// Query: ?car=Bolt&pose=rest|steer&view=hero|rear|side|front|back|top|chase|lineup&w=1200&h=800&driver=1&person=1
+const q = new URLSearchParams(location.search);
+const carName = q.get('car') || 'Bolt';
+const pose = q.get('pose') || 'rest';
+const view = q.get('view') || 'hero';
+const W = +(q.get('w') || 1200), H = +(q.get('h') || 800);
+const showDriver = q.get('driver') !== '0';
+const showPerson = q.get('person') !== '0';
+
+const data = await (await fetch('./cars.json?' + Date.now())).json();
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.setSize(W, H);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.NeutralToneMapping;
+renderer.toneMappingExposure = 1.1;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xa9c4dc);
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.35;
+
+scene.add(new THREE.HemisphereLight(0xdfeeff, 0x6b6151, 0.75));
+const sun = new THREE.DirectionalLight(0xffffff, 2.0);
+sun.position.set(-30, 50, -20);
+sun.castShadow = true;
+sun.shadow.mapSize.set(4096, 4096);
+const sc = sun.shadow.camera;
+sc.left = -40; sc.right = 40; sc.top = 40; sc.bottom = -40; sc.near = 1; sc.far = 200;
+sun.shadow.bias = -0.0004;
+sun.shadow.normalBias = 0.02;
+scene.add(sun);
+
+// Baseplate-like ground with a stud grid.
+{
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#8a8f96'; g.fillRect(0, 0, 256, 256);
+  g.strokeStyle = '#7d828a'; g.lineWidth = 4; g.strokeRect(0, 0, 256, 256);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(50, 50);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9 }));
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+}
+
+function srgb(c) { return new THREE.Color().setRGB(c[0], c[1], c[2], THREE.SRGBColorSpace); }
+
+function material(p) {
+  const color = srgb(p.color);
+  const t = p.transparency || 0;
+  switch (p.material) {
+    case 'Neon': {
+      const m = new THREE.MeshBasicMaterial({ color: color.clone().multiplyScalar(1.5), toneMapped: false });
+      if (t > 0) { m.transparent = true; m.opacity = 1 - t; }
+      return m;
+    }
+    case 'Glass':
+      return new THREE.MeshPhysicalMaterial({ color, roughness: 0.05, metalness: 0, transparent: true, opacity: Math.max(0.15, 1 - t), envMapIntensity: 1.4 });
+    case 'Metal': case 'DiamondPlate': case 'CorrodedMetal':
+      return new THREE.MeshStandardMaterial({ color, metalness: 0.75, roughness: 0.35, transparent: t > 0, opacity: 1 - t });
+    case 'Foil':
+      return new THREE.MeshStandardMaterial({ color, metalness: 0.9, roughness: 0.2 });
+    case 'Rubber': case 'Fabric': case 'Cardboard': case 'Plaster':
+      return new THREE.MeshStandardMaterial({ color, roughness: 0.92, transparent: t > 0, opacity: 1 - t });
+    case 'Plastic':
+      return new THREE.MeshStandardMaterial({ color, roughness: 0.7, transparent: t > 0, opacity: 1 - t });
+    default: // SmoothPlastic and the rest
+      return new THREE.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0, transparent: t > 0, opacity: 1 - t, envMapIntensity: 0.8 });
+  }
+}
+
+// Roblox wedge: bottom and back (+Z) faces are full, the slope runs from the bottom front
+// edge to the top back edge.
+function wedgeGeometry(sx, sy, sz) {
+  const x = sx / 2, y = sy / 2, z = sz / 2;
+  const A = [-x, -y, -z], B = [x, -y, -z], C = [x, -y, z], D = [-x, -y, z], E = [-x, y, z], F = [x, y, z];
+  const tris = [
+    [A, C, B], [A, D, C], // bottom
+    [D, F, C], [D, E, F], // back
+    [A, B, F], [A, F, E], // slope
+    [A, E, D], // left
+    [B, C, F], // right
+  ];
+  const pos = [];
+  // Listed clockwise from outside; three.js wants counter-clockwise, so reverse each.
+  for (const t of tris) for (const v of [t[0], t[2], t[1]]) pos.push(...v);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function geometry(p) {
+  const [sx, sy, sz] = p.size;
+  switch (p.shape) {
+    case 'Cylinder': {
+      const r = Math.min(sy, sz) / 2;
+      const g = new THREE.CylinderGeometry(r, r, sx, 40, 1);
+      g.rotateZ(Math.PI / 2);
+      return g;
+    }
+    case 'Ball':
+      return new THREE.SphereGeometry(Math.min(sx, sy, sz) / 2, 40, 24);
+    case 'Wedge':
+      return wedgeGeometry(sx, sy, sz);
+    default:
+      return new THREE.BoxGeometry(sx, sy, sz);
+  }
+}
+
+function placeMesh(mesh, cf) {
+  const [p, xc, yc, zc] = cf;
+  const m = new THREE.Matrix4().makeBasis(
+    new THREE.Vector3(...xc), new THREE.Vector3(...yc), new THREE.Vector3(...zc));
+  m.setPosition(new THREE.Vector3(...p));
+  mesh.matrixAutoUpdate = false;
+  mesh.matrix.copy(m);
+}
+
+function addPart(group, p) {
+  const mesh = new THREE.Mesh(geometry(p), material(p));
+  placeMesh(mesh, p.cframe);
+  mesh.castShadow = p.material !== 'Glass' && (p.transparency || 0) < 0.5;
+  mesh.receiveShadow = true;
+  group.add(mesh);
+}
+
+// A blocky R15-sized avatar (classic colours) for scale.
+const SKIN = [0.96, 0.8, 0.19], SHIRT = [0.05, 0.41, 0.67], PANTS = [0.16, 0.5, 0.28];
+function box(group, size, pos, color, rot) {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), material({ color, material: 'SmoothPlastic' }));
+  mesh.position.set(...pos);
+  if (rot) mesh.rotation.set(...rot);
+  mesh.castShadow = true; mesh.receiveShadow = true;
+  group.add(mesh);
+}
+function seatedAvatar(seat) {
+  const g = new THREE.Group();
+  // Local frame: seat top centre, facing -Z.
+  box(g, [1.9, 0.5, 1.0], [0, 0.55, 0.15], PANTS);          // lower torso
+  box(g, [2.0, 1.6, 1.0], [0, 1.6, 0.2], SHIRT);            // upper torso
+  box(g, [1.2, 1.2, 1.2], [0, 3.0, 0.2], SKIN);             // head (top ~3.6 above the seat)
+  box(g, [0.95, 0.95, 1.6], [-0.5, 0.5, -0.6], PANTS);      // thighs
+  box(g, [0.95, 0.95, 1.6], [0.5, 0.5, -0.6], PANTS);
+  box(g, [0.9, 1.5, 0.9], [-0.5, -0.2, -1.45], PANTS);      // shins
+  box(g, [0.9, 1.5, 0.9], [0.5, -0.2, -1.45], PANTS);
+  box(g, [0.9, 0.9, 1.9], [-1.45, 1.95, -0.55], SKIN, [0.25, 0, 0]); // arms to the wheel
+  box(g, [0.9, 0.9, 1.9], [1.45, 1.95, -0.55], SKIN, [0.25, 0, 0]);
+  const [p, xc, yc, zc] = seat.cframe;
+  const m = new THREE.Matrix4().makeBasis(new THREE.Vector3(...xc), new THREE.Vector3(...yc), new THREE.Vector3(...zc));
+  const top = new THREE.Vector3(...p).add(new THREE.Vector3(...yc).multiplyScalar(seat.size[1] / 2));
+  m.setPosition(top);
+  g.matrixAutoUpdate = false;
+  g.matrix.copy(m);
+  return g;
+}
+function standingAvatar(x, z) {
+  const g = new THREE.Group();
+  box(g, [0.95, 2.0, 0.95], [-0.5, 1.0, 0], PANTS);
+  box(g, [0.95, 2.0, 0.95], [0.5, 1.0, 0], PANTS);
+  box(g, [2.0, 2.0, 1.0], [0, 3.0, 0], SHIRT);
+  box(g, [0.95, 2.0, 0.95], [-1.5, 3.0, 0], SKIN);
+  box(g, [0.95, 2.0, 0.95], [1.5, 3.0, 0], SKIN);
+  box(g, [1.2, 1.2, 1.2], [0, 4.6, 0], SKIN);
+  g.position.set(x, 0, z);
+  return g;
+}
+
+function buildCar(entry, offsetX) {
+  const g = new THREE.Group();
+  for (const p of entry.parts) addPart(g, p);
+  if (showDriver && entry.seat) g.add(seatedAvatar(entry.seat));
+  g.position.x = offsetX || 0;
+  scene.add(g);
+  return g;
+}
+
+let target = new THREE.Vector3(0, 2.5, 0);
+let label = '';
+let radius = 12;
+if (view === 'lineup') {
+  const names = ['Bolt', 'Mule', 'Kite'];
+  // Seen from the front, +X is on the left of the picture.
+  let x = 16;
+  for (const n of names) {
+    const e = data.cars.find(c => c.name === n && c.pose === pose);
+    if (e) buildCar(e, x);
+    x -= 16;
+  }
+  if (showPerson) scene.add(standingAvatar(25, -3));
+  label = 'Bolt · Mule · Kite';
+  radius = 28;
+  target.set(0, 2.5, 0);
+} else {
+  const entry = data.cars.find(c => c.name === carName && c.pose === pose);
+  buildCar(entry);
+  const half = entry.chassisSize[0] / 2;
+  if (showPerson) scene.add(standingAvatar(-(half + 3.2), -2));
+  label = `${entry.name} · ${entry.partCount} parts`;
+  radius = Math.max(entry.chassisSize[2], 8) * 0.95;
+  target.set(0, entry.rideHeight + 0.5, 0);
+}
+document.getElementById('label').textContent = label;
+
+const camera = new THREE.PerspectiveCamera(view === 'chase' ? 70 : 32, W / H, 0.1, 500);
+const views = {
+  hero: [-1.0, 0.55, -1.1],   // front left, a bit above
+  rear: [0.95, 0.6, 1.15],    // back right
+  side: [-1, 0.12, 0],
+  front: [0, 0.25, -1],
+  back: [0, 0.3, 1],
+  top: [0.001, 1, 0.001],
+  lineup: [-0.55, 0.42, -1],
+};
+if (view === 'chase') {
+  const dist = +(q.get('dist') || 15), height = +(q.get('height') || 6.1), look = +(q.get('look') || 10);
+  camera.position.set(0, height, dist);
+  camera.lookAt(0, 2.2, -look);
+} else {
+  const d = new THREE.Vector3(...views[view]).normalize();
+  const dist = radius / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 0.62;
+  camera.position.copy(target).addScaledVector(d, dist);
+  camera.lookAt(target);
+}
+
+renderer.render(scene, camera);
+window.__ready = true;
+</script>
+</body>
+</html>

@@ -32,7 +32,7 @@ function WheelVisuals.new(car: Model, tune)
 					Mount = attachment.Position,
 					IsFront = isFront,
 					Spin = 0,
-					Extension = tune.Suspension.Travel * 0.7,
+					Extension = CarMath.restExtension(tune),
 				})
 				if isFront then
 					frontZ = attachment.Position.Z
@@ -43,6 +43,10 @@ function WheelVisuals.new(car: Model, tune)
 		end
 	end
 	self.WheelBase = math.max(math.abs(rearZ - frontZ), 1)
+	-- The wheels never look higher than WheelLift above where they rest, so a hard landing
+	-- squashes the springs without pushing the tyres up through the fenders.
+	local lift = if tune.Look and tune.Look.WheelLift then tune.Look.WheelLift else math.huge
+	self.MinExtension = math.max(0, CarMath.restExtension(tune) - lift)
 
 	self.RayParams = RaycastParams.new()
 	self.RayParams.ExcludeInstances = { car }
@@ -69,7 +73,7 @@ function WheelVisuals:Update(dt: number, physics)
 		for _, wheel in self.Wheels do
 			local source = byName[wheel.Name]
 			if source then
-				wheel.Extension = CarMath.clamp(source.Extension, 0, travel)
+				wheel.Extension = CarMath.clamp(source.Extension, self.MinExtension, travel)
 				wheel.SpinSpeed = source.SpinSpeed
 				wheel.Steer = if wheel.IsFront then physics.SteerAngle else 0
 			end
@@ -89,7 +93,7 @@ function WheelVisuals:Update(dt: number, physics)
 		for _, wheel in self.Wheels do
 			local origin = cf:PointToWorldSpace(wheel.Mount) + up * radius
 			local hit = workspace:Raycast(origin, -up * (travel + 2 * radius), self.RayParams)
-			local target = if hit then CarMath.clamp(hit.Distance - 2 * radius, 0, travel) else travel
+			local target = if hit then CarMath.clamp(hit.Distance - 2 * radius, self.MinExtension, travel) else travel
 			wheel.Extension += (target - wheel.Extension) * follow
 			wheel.SpinSpeed = forwardSpeed / radius
 			wheel.Steer = if wheel.IsFront then self.SteerEstimate else 0

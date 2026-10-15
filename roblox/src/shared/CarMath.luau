@@ -88,4 +88,20 @@ function CarMath.angleBetween(a: Vector3, b: Vector3): number
 	return math.acos(CarMath.clamp(a:Dot(b), -1, 1))
 end
 
+-- How far each wheel hangs below its mount when the car sits still on flat ground.
+function CarMath.restExtension(tune): number
+	local suspension = tune.Suspension
+	local omega = 2 * math.pi * suspension.Frequency
+	local sag = tune.Gravity / (omega * omega)
+	return CarMath.clamp(suspension.Travel - sag, 0, suspension.Travel)
+end
+
+-- The wheel mount height that makes the body centre sit rideHeight above flat ground
+-- at rest (the reverse of the ride height sum in CarPhysics.new).
+function CarMath.mountHeightFor(rideHeight: number, radius: number, travel: number, frequency: number, gravity: number): number
+	local omega = 2 * math.pi * frequency
+	local rest = CarMath.clamp(travel - gravity / (omega * omega), 0, travel)
+	return rest + radius - rideHeight
+end
+
 return CarMath

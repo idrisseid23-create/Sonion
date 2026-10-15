@@ -108,17 +108,15 @@ function CarPhysics.new(model: Model, tune, options)
 	self.BrakeDecel = engine.TopSpeed / tune.Brakes.TimeFromTopSpeed
 
 	-- How high the body centre sits above flat ground at rest (used when respawning).
-	local suspension = tune.Suspension
-	local omega = 2 * math.pi * suspension.Frequency
-	local sag = tune.Gravity / (omega * omega)
-	self.RestExtension = clamp(suspension.Travel - sag, 0, suspension.Travel)
+	self.RestExtension = CarMath.restExtension(tune)
 	local mountY = 0
 	for _, wheel in self.Wheels do
 		mountY += wheel.Mount.Y
 	end
 	mountY /= #self.Wheels
 	self.RideHeight = -mountY + self.RestExtension + tune.Wheels.Radius
-	self.RoofReach = tune.Body.Size.Y / 2 + tune.Body.CabinSize.Y + 0.6
+	-- How far above the body centre the top of the car is (roof, or cargo on the roof).
+	self.RoofReach = (tune.Body.RoofHeight or tune.Body.Size.Y / 2 + tune.Body.CabinSize.Y) + 0.6
 
 	-- Live state (read these for the HUD, camera and sounds).
 	self.State = CarPhysics.States.Grounded
@@ -320,7 +318,11 @@ function CarPhysics:Step(dt: number, input)
 			local partnerX = if partner and partner.Grounded then math.min(partner.Compression, suspension.Travel) else 0
 			local hub = wheel.MountWorld - up * math.max(wheel.Extension, 0)
 			wheel.GroundVelocity = groundVelocity(wheel.Instance, wheel.ContactPoint)
-			local upSpeed = (chassis:GetVelocityAtPosition(hub) - wheel.GroundVelocity):Dot(up)
+			-- How fast the wheel is leaving the ground (+) or pressing into it (-). Measured
+			-- along the ground's normal: the car's own up tilts a little with pitch, and at
+			-- speed that would read part of the forward motion as the spring stretching.
+			local n = wheel.Normal
+			local upSpeed = (chassis:GetVelocityAtPosition(hub) - wheel.GroundVelocity):Dot(n) / math.max(n:Dot(up), 0.3)
 
 			local spring = k * x + k * suspension.AntiRoll * (x - partnerX)
 			-- Shocks resist bouncing back up more than squashing down, like real ones.
