@@ -615,5 +615,46 @@ for _, name in { "Mule", "Kite" } do
 end
 flatWorld()
 
+print("23. Getting in: the car had sunk onto its belly before the driver's computer took over")
+-- In Studio the server stops holding the car up a moment before the driver's computer
+-- gets control, so the car can drop onto its body. Taking over must not launch it.
+for _, case in {
+	{ name = "resting on its belly", drop = 0, speed = 0 },
+	{ name = "still sinking at 15 studs/s", drop = 0, speed = -15 },
+	{ name = "dropped from 8 studs", drop = 8, speed = 0 },
+} do
+	flatWorld()
+	local car = newCar()
+	local belly = car.tune.Body.Size.Y / 2 + 0.05
+	local pos = Vector3.new(0, belly + case.drop, 0)
+	car.chassis.CFrame = CFrame.lookAt(pos, pos + Vector3.new(0, 0, -1))
+	car.chassis.AssemblyLinearVelocity = Vector3.new(0, case.speed, 0)
+	-- Measure from the moment a wheel touches (straight away unless it was dropped).
+	local touchedAt = nil
+	local maxY, maxUp = -math.huge, 0
+	run(car, 4, input({}), 1 / 60, function(t)
+		if not touchedAt and car.phys.GroundedWheels > 0 then
+			touchedAt = car.phys.Clock
+		end
+		if touchedAt then
+			maxY = math.max(maxY, car.chassis.Position.Y)
+			maxUp = math.max(maxUp, car.chassis.AssemblyLinearVelocity.Y)
+		end
+	end)
+	local leftGround = false
+	for _, e in car.events do
+		if e.name == "Airborne" and touchedAt and e.t > touchedAt then
+			leftGround = true
+		end
+	end
+	local finalY = car.chassis.Position.Y
+	local overshoot = maxY - car.phys.RideHeight
+	print(string.format("     %s: after touching, highest %.2f above ride height, fastest rise %.1f studs/s, ends at %.3f (ride %.3f)",
+		case.name, overshoot, maxUp, finalY, car.phys.RideHeight))
+	check(overshoot < 0.6, case.name .. ": not thrown up")
+	check(not leftGround, case.name .. ": never leaves the ground again")
+	check(math.abs(finalY - car.phys.RideHeight) < 0.1, case.name .. ": settles at ride height")
+end
+
 print("")
 print(if failures == 0 then "ALL PASSED" else failures .. " FAILED")

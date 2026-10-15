@@ -143,6 +143,7 @@ function CarCamera:Update(dt: number)
 		local body = self.Tune.Body
 		local eye = Vector3.new(0, body.Size.Y / 2 + body.CabinSize.Y * 0.75, body.CabinOffset.Z - body.CabinSize.Z / 2 - 0.4)
 		camera.CFrame = cf * CFrame.new(eye)
+		camera.Focus = cf
 		self.NeedsSnap = true
 		return
 	end
@@ -200,6 +201,7 @@ function CarCamera:Update(dt: number)
 	end
 
 	camera.CFrame = CFrame.lookAt(cameraPosition, lookAt)
+	camera.Focus = CFrame.new(focus) -- Roblox loads detail and lighting around this point
 end
 
 function CarCamera:Destroy()

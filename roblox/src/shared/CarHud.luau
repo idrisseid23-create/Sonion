@@ -123,6 +123,7 @@ function CarHud.new(player: Player)
 	})
 	self.Driving = driving
 
+	-- Narrower on phones so it fits between the steering and brake buttons.
 	local speedPanel = create("Frame", {
 		Name = "Speed",
 		AnchorPoint = Vector2.new(0.5, 1),
@@ -132,6 +133,7 @@ function CarHud.new(player: Player)
 		BackgroundTransparency = 0.2,
 		Parent = driving,
 	}, { corner(14), stroke(COLORS.Stroke) })
+	self.SpeedPanel = speedPanel
 	self.SpeedLabel = label({
 		Position = UDim2.fromOffset(0, 6),
 		Size = UDim2.new(1, 0, 0, 48),
@@ -185,18 +187,25 @@ function CarHud.new(player: Player)
 		Parent = driving,
 	})
 
-	-- Top-right buttons (work with mouse and touch; keys shown for keyboard players).
-	local topRight = create("Frame", {
-		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -16, 0, 60),
-		Size = UDim2.fromOffset(120, 220),
+	-- A row of buttons along the top middle (work with mouse and touch; keys shown for
+	-- keyboard players). Top middle keeps them clear of the phone buttons in the bottom
+	-- corners and of Roblox's player list in the top right.
+	local topRow = create("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 8),
+		Size = UDim2.fromOffset(424, 40),
 		BackgroundTransparency = 1,
 		Parent = driving,
 	}, {
-		create("UIListLayout", { Padding = UDim.new(0, 8), HorizontalAlignment = Enum.HorizontalAlignment.Right }),
+		create("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal,
+			HorizontalAlignment = Enum.HorizontalAlignment.Center,
+			Padding = UDim.new(0, 8),
+			SortOrder = Enum.SortOrder.LayoutOrder,
+		}),
 	})
 	local function topButton(name: string, text: string, order: number)
-		local b = button({ Name = name, Text = text, Size = UDim2.fromOffset(120, 44), TextSize = 15, LayoutOrder = order, Parent = topRight })
+		local b = button({ Name = name, Text = text, Size = UDim2.fromOffset(100, 40), TextSize = 13, LayoutOrder = order, Parent = topRow })
 		b.Activated:Connect(function()
 			if self.Input then
 				self.Input:Press(name)
@@ -207,7 +216,7 @@ function CarHud.new(player: Player)
 	topButton("Reset", "RESET  [R]", 1)
 	topButton("Camera", "CAMERA  [C]", 2)
 	topButton("Exit", "GET OUT  [F]", 3)
-	self.AutoGasButton = button({ Name = "AutoGas", Text = "AUTO-GAS ON", Size = UDim2.fromOffset(120, 44), TextSize = 13, LayoutOrder = 4, Visible = false, Parent = topRight })
+	self.AutoGasButton = button({ Name = "AutoGas", Text = "AUTO-GAS ON", Size = UDim2.fromOffset(100, 40), TextSize = 12, LayoutOrder = 4, Visible = false, Parent = topRow })
 	self.AutoGasButton.Activated:Connect(function()
 		if self.Input then
 			self.Input.AutoGas = not self.Input.AutoGas
@@ -253,24 +262,36 @@ function CarHud.new(player: Player)
 	touchButton("Gas", "GAS", 132, UDim2.new(1, -24, 1, -24), Vector2.new(1, 1), Color3.fromRGB(60, 120, 60))
 	touchButton("Brake", "BRAKE", 104, UDim2.new(1, -170, 1, -24), Vector2.new(1, 1), Color3.fromRGB(130, 50, 50))
 	touchButton("Handbrake", "DRIFT", 96, UDim2.new(1, -174, 1, -142), Vector2.new(1, 1))
-	local boostButton = touchButton("Boost", "BOOST", 96, UDim2.new(1, -42, 1, -170), Vector2.new(1, 1))
+	local boostButton = touchButton("Boost", "", 96, UDim2.new(1, -42, 1, -170), Vector2.new(1, 1))
 	boostButton.ClipsDescendants = true
+	-- The fill shows how much boost is left; the text sits above it on its own label
+	-- (a button's own text always draws under its children).
 	self.TouchBoostFill = create("Frame", {
 		AnchorPoint = Vector2.new(0, 1),
 		Position = UDim2.fromScale(0, 1),
 		Size = UDim2.fromScale(1, 0.5),
 		BackgroundColor3 = COLORS.Orange,
 		BackgroundTransparency = 0.45,
-		ZIndex = 0,
+		ZIndex = 1,
+		Parent = boostButton,
+	}, { corner(16) })
+	label({
+		Name = "Label",
+		Size = UDim2.fromScale(1, 1),
+		Font = Enum.Font.GothamBlack,
+		TextSize = 20,
+		Text = "BOOST",
+		ZIndex = 2,
 		Parent = boostButton,
 	})
 
 	------------------------------------------------------------------------ spawn panel
+	-- Top middle, so it stays clear of the phone thumbstick and jump button.
 	local garage = create("Frame", {
 		Name = "Garage",
-		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 16, 0.5, 0),
-		Size = UDim2.fromOffset(190, 220),
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 8),
+		Size = UDim2.fromOffset(360, 104),
 		BackgroundColor3 = COLORS.Panel,
 		BackgroundTransparency = 0.15,
 		Parent = gui,
@@ -278,17 +299,34 @@ function CarHud.new(player: Player)
 		corner(14),
 		stroke(COLORS.Stroke),
 		create("UIPadding", {
-			PaddingTop = UDim.new(0, 12),
-			PaddingBottom = UDim.new(0, 12),
+			PaddingTop = UDim.new(0, 10),
+			PaddingBottom = UDim.new(0, 10),
 			PaddingLeft = UDim.new(0, 12),
 			PaddingRight = UDim.new(0, 12),
 		}),
-		create("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }),
+		create("UIListLayout", {
+			Padding = UDim.new(0, 6),
+			HorizontalAlignment = Enum.HorizontalAlignment.Center,
+			SortOrder = Enum.SortOrder.LayoutOrder,
+		}),
 	})
 	self.Garage = garage
-	label({ Text = "SPAWN A CAR", Size = UDim2.new(1, 0, 0, 18), TextSize = 14, TextColor3 = COLORS.Orange, LayoutOrder = 0, Parent = garage })
+	label({ Text = "SPAWN A CAR", Size = UDim2.new(1, 0, 0, 16), TextSize = 14, TextColor3 = COLORS.Orange, LayoutOrder = 0, Parent = garage })
+	local carRow = create("Frame", {
+		Size = UDim2.new(1, 0, 0, 38),
+		BackgroundTransparency = 1,
+		LayoutOrder = 1,
+		Parent = garage,
+	}, {
+		create("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal,
+			HorizontalAlignment = Enum.HorizontalAlignment.Center,
+			Padding = UDim.new(0, 8),
+			SortOrder = Enum.SortOrder.LayoutOrder,
+		}),
+	})
 	for index, carName in { "Bolt", "Mule", "Kite" } do
-		local b = button({ Name = carName, Text = string.upper(carName), Size = UDim2.new(1, 0, 0, 38), TextSize = 16, LayoutOrder = index, Parent = garage })
+		local b = button({ Name = carName, Text = string.upper(carName), Size = UDim2.fromOffset(104, 38), TextSize = 16, LayoutOrder = index, Parent = carRow })
 		b.Activated:Connect(function()
 			if self.OnSpawnRequest then
 				self.OnSpawnRequest(carName)
@@ -296,12 +334,11 @@ function CarHud.new(player: Player)
 		end)
 	end
 	label({
-		Text = "Walk up to your car and press E to drive.",
-		Size = UDim2.new(1, 0, 0, 34),
+		Text = "Walk up to a car and press E or tap to drive.",
+		Size = UDim2.new(1, 0, 0, 14),
 		TextSize = 12,
-		TextWrapped = true,
 		TextColor3 = COLORS.Muted,
-		LayoutOrder = 10,
+		LayoutOrder = 2,
 		Parent = garage,
 	})
 
@@ -402,6 +439,7 @@ function CarHud:Update(physics)
 		local showTouch = input.TouchMode or (UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled)
 		self.TouchFrame.Visible = showTouch
 		self.AutoGasButton.Visible = showTouch
+		self.SpeedPanel.Size = if showTouch then UDim2.fromOffset(110, 84) else UDim2.fromOffset(210, 92)
 		self.AutoGasButton.Text = if input.AutoGas then "AUTO-GAS ON" else "AUTO-GAS OFF"
 		if showTouch then
 			local air = state == "Airborne"

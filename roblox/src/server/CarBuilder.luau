@@ -145,6 +145,7 @@ function CarBuilder.Build(tune, cframe: CFrame): Model
 	seat.CFrame = cframe * CFrame.new(-size.X / 4, size.Y / 2 + 0.5, body.CabinOffset.Z)
 	seat.Transparency = 1
 	seat.CanCollide = false
+	seat.CanTouch = false -- get in with the prompt only (stops re-sitting by bumping it when you get out)
 	seat.Massless = true
 	seat.Parent = model
 	weld(chassis, seat)

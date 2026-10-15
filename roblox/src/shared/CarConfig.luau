@@ -89,6 +89,7 @@ local Base = {
 		ReboundDamping = 2, -- shocks are this many times stiffer bouncing back up than squashing
 		AntiRoll = 0.5, -- resists leaning in corners (fraction of spring strength)
 		BumpStop = 8, -- extra stiffness when a wheel is nearly fully pushed in
+		MaxRiseSpeed = 1.5 * M, -- springs never lift the car faster than this (stops it being thrown up)
 		CastShape = "Sphere", -- "Sphere" rolls over edges smoothly, "Ray" is the simple version
 	},
 

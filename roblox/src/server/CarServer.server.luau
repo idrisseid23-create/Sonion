@@ -78,16 +78,45 @@ local function watchCar(car: Model, tune)
 		end
 	end)
 
+	local driverConnections: { RBXScriptConnection } = {}
+	local function unwatchDriver()
+		for _, connection in driverConnections do
+			connection:Disconnect()
+		end
+		table.clear(driverConnections)
+	end
+
 	seat:GetPropertyChangedSignal("Occupant"):Connect(function()
+		unwatchDriver()
 		local occupant = seat.Occupant
 		local driver = occupant and Players:GetPlayerFromCharacter(occupant.Parent)
 		if driver then
 			-- The driver's computer runs the physics now (smooth, no lag on their screen).
+			-- Stop the server's copy but leave its last push on the car: zeroing it here
+			-- dropped the car onto its body for the moment before the driver took over.
 			parked[car] = nil
-			physics:Destroy()
+			if physics then
+				physics.OnEvent = nil
+				physics = nil
+			end
 			prompt.Enabled = false
 			car:SetAttribute("DriverUserId", driver.UserId)
 			setOwner(car, driver)
+
+			-- If the driver dies, resets or leaves, free the seat so the car comes back.
+			local function freeSeat()
+				local weld = seat:FindFirstChild("SeatWeld")
+				if weld then
+					weld:Destroy()
+				end
+			end
+			local character = occupant.Parent
+			table.insert(driverConnections, occupant.Died:Connect(freeSeat))
+			table.insert(driverConnections, character.AncestryChanged:Connect(function(_, parent)
+				if parent == nil then
+					freeSeat()
+				end
+			end))
 		else
 			-- Empty again: the server keeps it parked on its wheels.
 			car:SetAttribute("DriverUserId", nil)
@@ -100,6 +129,7 @@ local function watchCar(car: Model, tune)
 
 	car.Destroying:Connect(function()
 		parked[car] = nil
+		unwatchDriver()
 	end)
 end
 
@@ -161,16 +191,19 @@ local function exitCar(player: Player)
 	end
 	humanoid.Sit = false
 
-	-- Step out on the left side, standing upright.
+	-- Step out on the left side, standing upright on the ground (even if the car is on its
+	-- side or upside down).
 	local chassis = car.PrimaryPart
-	local width = chassis.Size.X
-	local out = chassis.CFrame * CFrame.new(-(width / 2 + 3), 2, 0)
 	local flatLook = chassis.CFrame.LookVector * Vector3.new(1, 0, 1)
 	flatLook = if flatLook.Magnitude > 0.1 then flatLook.Unit else Vector3.new(0, 0, -1)
+	local left = Vector3.new(flatLook.Z, 0, -flatLook.X)
+	local out = chassis.Position + left * (chassis.Size.X / 2 + 3)
+	local ground = groundBelow(out)
+	local stand = if ground then Vector3.new(out.X, ground.Position.Y + 3, out.Z) else out + Vector3.new(0, 2, 0)
 	task.defer(function()
 		local character = player.Character
 		if character then
-			character:PivotTo(CFrame.lookAt(out.Position, out.Position + flatLook))
+			character:PivotTo(CFrame.lookAt(stand, stand + flatLook))
 		end
 	end)
 end
@@ -186,15 +219,24 @@ remote.OnServerEvent:Connect(function(player, action, arg)
 	end
 end)
 
-Players.PlayerAdded:Connect(function(player)
-	player.CharacterAdded:Connect(function()
+local function onPlayer(player: Player)
+	local function onCharacter()
 		-- First spawn: give them a car to test with.
 		if playerCars[player] == nil or playerCars[player].Parent == nil then
 			task.wait(1)
 			spawnCar(player, CarConfig.Default)
 		end
-	end)
-end)
+	end
+	player.CharacterAdded:Connect(onCharacter)
+	if player.Character then
+		task.spawn(onCharacter)
+	end
+end
+
+Players.PlayerAdded:Connect(onPlayer)
+for _, player in Players:GetPlayers() do
+	onPlayer(player)
+end
 
 Players.PlayerRemoving:Connect(function(player)
 	local car = playerCars[player]

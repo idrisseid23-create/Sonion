@@ -308,11 +308,16 @@ function CarPhysics:Step(dt: number, input)
 		end
 	end
 
+	-- The most one spring may push: hold its share of the car up and lift it at no more than
+	-- MaxRiseSpeed. Without this a car that sank onto its body (getting in, a bad landing)
+	-- gets thrown into the air, and every landing after that throws it higher.
+	local maxRise = suspension.MaxRiseSpeed
 	for _, wheel in self.Wheels do
 		if wheel.Grounded then
-			local x = wheel.Compression
+			-- Past full travel the body takes the hit, so the springs stop pushing harder.
+			local x = math.min(wheel.Compression, suspension.Travel)
 			local partner = wheel.Partner
-			local partnerX = if partner and partner.Grounded then partner.Compression else 0
+			local partnerX = if partner and partner.Grounded then math.min(partner.Compression, suspension.Travel) else 0
 			local hub = wheel.MountWorld - up * math.max(wheel.Extension, 0)
 			wheel.GroundVelocity = groundVelocity(wheel.Instance, wheel.ContactPoint)
 			local upSpeed = (chassis:GetVelocityAtPosition(hub) - wheel.GroundVelocity):Dot(up)
@@ -333,6 +338,7 @@ function CarPhysics:Step(dt: number, input)
 			end
 			damping = math.min(damping, wheelMass / dt) -- stay stable at low frame rates
 			local push = math.max(spring - damping * upSpeed, 0)
+			push = math.min(push, staticLoad + wheelMass * math.max(maxRise - upSpeed, 0) / dt)
 			local lift = up * push
 			force += lift
 			torque += (hub - com):Cross(lift)

@@ -41,15 +41,25 @@ The base driving for the delivery game, built from the Driving blueprint. It use
 4. **StarterPlayer → StarterPlayerScripts:** add a **LocalScript** named `CarClient` and paste
    in `src/client/CarClient.client.luau`.
 5. Press **Play**. A car appears in front of you. Walk up to it and press **E** to drive.
-   The panel on the left spawns Bolt, Mule or Kite.
+   The panel at the top spawns Bolt, Mule or Kite.
 
 Names matter: the scripts find each other by name. If something doesn't load, check the
 Output window first; it nearly always points at a misspelled name.
 
 ### Or with Rojo
 
-If you use Rojo, `default.project.json` maps the folders above for you: run `rojo serve`
-here and connect from the Rojo plugin.
+Rojo copies the files into Studio for you and keeps them in sync as they change.
+
+1. Install [Rokit](https://github.com/rojo-rbx/rokit/releases) (the x64 file for most Windows PCs).
+2. In a terminal in this `roblox` folder, run `rokit install`. It installs the Rojo version
+   listed in `rokit.toml`.
+3. Run `rojo serve` and leave it running.
+4. In Studio, install the **Rojo** plugin by rojo-rbx (View → Toolbox), and allow it
+   **Script Injection** in Plugins → Plugin Manager.
+5. Click **Connect** in the Rojo plugin, then **Accept**.
+
+When the scripts here change, replace the files in this folder; Rojo pushes them into Studio
+straight away.
 
 ## Controls
 
