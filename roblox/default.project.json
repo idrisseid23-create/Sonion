@@ -1,0 +1,23 @@
+{
+  "name": "DeliveryDriving",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "CarSystem": {
+        "$path": "src/shared"
+      }
+    },
+    "ServerScriptService": {
+      "CarSystem": {
+        "$path": "src/server"
+      }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "CarClient": {
+          "$path": "src/client/CarClient.client.luau"
+        }
+      }
+    }
+  }
+}
