@@ -690,5 +690,31 @@ do
 	check(car2.phys.ForwardSpeed > 40, "pressing gas right after getting in drives off normally")
 end
 
+print("25. Parked and nudged: no rocking, at 60 and 30 fps with uneven frame times")
+for _, name in { "Bolt", "Mule", "Kite" } do
+	for _, fps in { 60, 30 } do
+		flatWorld()
+		local car = newCar(name)
+		run(car, 1, input({}))
+		local h0, p0 = heading(car), car.chassis.Position
+		car.chassis.AssemblyAngularVelocity = Vector3.new(0.3, 0, 0.5) -- a pitch and roll nudge
+		local wobble = 0
+		local frames = fps * 3
+		for i = 1, frames do
+			-- Frame times wander by up to 30% either way, like a real game.
+			local dt = (1 / fps) * (0.7 + 0.6 * ((i * 7919) % 101) / 100)
+			car.phys:Step(dt, input({}))
+			car.simulate(dt)
+			if i > frames / 2 then
+				wobble = math.max(wobble, car.chassis.AssemblyAngularVelocity.Magnitude)
+			end
+		end
+		local turned = math.deg(math.abs(heading(car) - h0))
+		local moved = (car.chassis.Position - p0) * Vector3.new(1, 0, 1)
+		print(string.format("     %s %d fps: wobble after 1.5 s %.3f rad/s, turned %.2f deg, moved %.3f studs", name, fps, wobble, turned, moved.Magnitude))
+		check(wobble < 0.05 and turned < 1 and moved.Magnitude < 0.2, string.format("%s at %d fps settles after a nudge", name, fps))
+	end
+end
+
 print("")
 print(if failures == 0 then "ALL PASSED" else failures .. " FAILED")

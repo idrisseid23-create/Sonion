@@ -150,12 +150,17 @@ list what they change from Bolt.
   and `CarTorque`).
 - **The wheels you see are just for looks.** Each player's computer spins and steers them
   locally, so they cost nothing on the network.
-- **Getting in.** Your avatar becomes weightless and stops colliding (collision group
-  `CarDriver`) while you drive, so it can't tip the car or push against it; it is placed in the
-  seat before the seat grabs it, so sitting never moves the car. Your computer starts driving
-  only once it controls the car, from a still start, and soaks up any jolt for the first
-  moment. When you get out you're stood beside the driver's door and your avatar gets its
-  weight and collisions back.
+- **Getting in.** Your avatar becomes weightless while you drive and stops colliding with car
+  bodies (collision group `CarDriver` against `CarBody`), so it can't tip the car, push against
+  it, or become the part Roblox keeps still when the seat welds you in. The server keeps
+  holding the car still until your computer says it has taken over ("Ready"); your computer
+  starts from a still car and soaks up any jolt for the first moment. When you get out you're
+  stood still beside the driver's door and your avatar gets its weight back.
+- **Steady suspension.** The springs and shocks are worked out once a frame and held until the
+  next, so they're kept within what the body can take in one frame (how heavy it is and how hard
+  it is to roll and pitch, which CarPhysics asks Roblox for). Hidden weights low at the four
+  wheel corners make the cars hard to roll, like real ones. Without both, a small light car
+  rocks itself into a wobble, worst on phones at low frame rates.
 
 ## How the cars are built
 

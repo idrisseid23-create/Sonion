@@ -3,7 +3,6 @@
 -- computer while they drive, and keeps empty cars parked on their suspension.
 
 local CollectionService = game:GetService("CollectionService")
-local PhysicsService = game:GetService("PhysicsService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -15,9 +14,8 @@ local CarBuilder = require(script.Parent:WaitForChild("CarBuilder"))
 
 local SPAWN_COOLDOWN = 2
 local SPAWN_DISTANCE = 16 -- studs in front of the player
-local SEAT_HEIGHT = 1.5 -- a Seat holds the avatar's root this far above its top
 local ABANDONED_CAR_LIFETIME = 30 -- seconds an empty car nobody owns any more stays around
-local DRIVER_GROUP = "CarDriver"
+local HANDOVER_TIMEOUT = 2 -- seconds the server keeps holding a car for a driver who hasn't said "Ready"
 
 local remote = CarSystem:FindFirstChild("CarRemote")
 if not remote then
@@ -33,18 +31,12 @@ if not carsFolder then
 	carsFolder.Parent = workspace
 end
 
--- Drivers' avatars go in a collision group that touches nothing: the car's own invisible
--- boxes do the colliding, and the avatar can't shove against the car it sits inside.
-if not PhysicsService:IsCollisionGroupRegistered(DRIVER_GROUP) then
-	PhysicsService:RegisterCollisionGroup(DRIVER_GROUP)
-end
-for _, group in PhysicsService:GetRegisteredCollisionGroups() do
-	PhysicsService:CollisionGroupSetCollidable(DRIVER_GROUP, group.name, false)
-end
-
 local playerCars: { [Player]: Model } = {}
 local lastSpawn: { [Player]: number } = {}
 local parked: { [Model]: any } = {} -- car -> CarPhysics running on the server while empty
+-- Cars whose new driver's computer hasn't taken over yet: car -> { Player, deadline }.
+-- The server keeps holding them still until then.
+local handingOver: { [Model]: { Player: Player, Deadline: number } } = {}
 
 local function getHumanoid(player: Player): Humanoid?
 	local character = player.Character
@@ -85,10 +77,10 @@ local function groundBelow(position: Vector3): RaycastResult?
 end
 
 ------------------------------------------------------------------------------------------
--- The driver's avatar while seated: weightless and touching nothing.
--- Without this the avatar's weight tips the car, and when the seat welds the avatar in,
--- Roblox may pick the avatar as the part that stays put and move the car to it instead
--- (the car twists round and lifts). Weightless parts can never be that part.
+-- The driver's avatar while seated: weightless, and not colliding with car bodies (it sits
+-- inside one). Weightless parts can never become the part Roblox keeps still when the seat
+-- welds the avatar in (which would move the car to the avatar), and the avatar's weight
+-- can't tip the car. It still stands on floors.
 ------------------------------------------------------------------------------------------
 local isolated: { [Model]: { Saved: { [BasePart]: { any } }, Connection: RBXScriptConnection } } = {}
 
@@ -99,8 +91,10 @@ local function isolateDriver(character: Model)
 	local saved = {}
 	local function apply(item: Instance)
 		if item:IsA("BasePart") and saved[item] == nil then
-			saved[item] = { item.CollisionGroup, item.Massless }
-			item.CollisionGroup = DRIVER_GROUP
+			-- (Still in the driver group from a moment ago? Its own group was the default.)
+			local group = if item.CollisionGroup == CarBuilder.DriverGroup then "Default" else item.CollisionGroup
+			saved[item] = { group, item.Massless }
+			item.CollisionGroup = CarBuilder.DriverGroup
 			item.Massless = true
 		end
 	end
@@ -110,6 +104,8 @@ local function isolateDriver(character: Model)
 	isolated[character] = { Saved = saved, Connection = character.DescendantAdded:Connect(apply) }
 end
 
+-- Gives the avatar its weight back straight away, and its collisions with car bodies a
+-- moment later (once it's clear of the car), unless it has got back into a car by then.
 local function restoreDriver(character: Model)
 	local entry = isolated[character]
 	if not entry then
@@ -119,10 +115,19 @@ local function restoreDriver(character: Model)
 	entry.Connection:Disconnect()
 	for part, old in entry.Saved do
 		if part.Parent then
-			part.CollisionGroup = old[1]
 			part.Massless = old[2]
 		end
 	end
+	task.delay(0.5, function()
+		if isolated[character] then
+			return -- back in a car
+		end
+		for part, old in entry.Saved do
+			if part.Parent then
+				part.CollisionGroup = old[1]
+			end
+		end
+	end)
 end
 
 -- Where the avatar should stand after getting out: beside the driver's door, upright, on
@@ -155,16 +160,12 @@ local function watchCar(car: Model, tune)
 			return
 		end
 		local character = humanoid.Parent :: Model
-		local returnTo = character:GetPivot()
-		-- Make the avatar weightless and untouchable, then put it exactly where the seat will
-		-- hold it, so sitting down moves nothing.
+		-- Weightless first, so the car is what stays put when the seat pulls the avatar in.
 		isolateDriver(character)
-		character:PivotTo(seat.CFrame * CFrame.new(0, seat.Size.Y / 2 + SEAT_HEIGHT, 0))
 		seat:Sit(humanoid)
-		task.delay(0.25, function()
-			if humanoid.SeatPart ~= seat and character.Parent then
-				-- The seat refused (Roblox has a short re-sit cooldown): put everything back.
-				character:PivotTo(returnTo)
+		task.delay(0.5, function()
+			if seat.Occupant ~= humanoid and humanoid.SeatPart == nil then
+				-- The seat refused (Roblox has a short re-sit cooldown): undo.
 				restoreDriver(character)
 			end
 		end)
@@ -187,14 +188,11 @@ local function watchCar(car: Model, tune)
 			driverCharacter = character
 			isolateDriver(character) -- in case they got in some other way
 
-			-- The driver's computer runs the physics now (smooth, no lag on their screen).
-			-- Stop the server's copy but leave its last push on the car: zeroing it here
-			-- dropped the car onto its body for the moment before the driver took over.
-			parked[car] = nil
-			if physics then
-				physics.OnEvent = nil
-				physics = nil
-			end
+			-- The driver's computer runs the physics from now on (smooth, no lag on their
+			-- screen). The server keeps holding the car still until that computer says it has
+			-- taken over (the "Ready" remote), so the car never sits there with no one driving
+			-- its springs.
+			handingOver[car] = { Player = driver, Deadline = os.clock() + HANDOVER_TIMEOUT }
 			prompt.Enabled = false
 			car:SetAttribute("DriverUserId", driver.UserId)
 			setOwner(car, driver)
@@ -214,6 +212,7 @@ local function watchCar(car: Model, tune)
 			end))
 		else
 			-- Empty again: the server keeps it parked on its wheels.
+			handingOver[car] = nil
 			car:SetAttribute("DriverUserId", nil)
 			prompt.Enabled = true
 			setOwner(car, nil)
@@ -221,8 +220,8 @@ local function watchCar(car: Model, tune)
 			physics:SetIgnoreList(characterList())
 			parked[car] = physics
 
-			-- Stand the last driver beside the car, then give their avatar back its weight
-			-- and collisions once it is clear of the car.
+			-- Stand the last driver beside the car, still, and give their avatar back its
+			-- weight (and, a moment later, its collisions with cars).
 			local character = driverCharacter
 			driverCharacter = nil
 			if character and character.Parent then
@@ -230,9 +229,14 @@ local function watchCar(car: Model, tune)
 				if humanoid and humanoid.Health > 0 then
 					humanoid.Sit = false
 					character:PivotTo(exitSpot(car))
+					local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+					if root then
+						root.AssemblyLinearVelocity = Vector3.zero
+						root.AssemblyAngularVelocity = Vector3.zero
+					end
 				end
-				task.delay(0.2, restoreDriver, character)
-			elseif character then
+			end
+			if character then
 				restoreDriver(character)
 			end
 
@@ -249,6 +253,7 @@ local function watchCar(car: Model, tune)
 
 	car.Destroying:Connect(function()
 		parked[car] = nil
+		handingOver[car] = nil
 		unwatchDriver()
 		if driverCharacter then
 			restoreDriver(driverCharacter)
@@ -326,6 +331,14 @@ remote.OnServerEvent:Connect(function(player, action, arg)
 		spawnCar(player, arg)
 	elseif action == "Exit" then
 		exitCar(player)
+	elseif action == "Ready" then
+		-- The driver's computer is running this car now: stop holding it here.
+		local car = arg
+		local waiting = typeof(car) == "Instance" and handingOver[car]
+		if waiting and waiting.Player == player then
+			handingOver[car] = nil
+			parked[car] = nil
+		end
 	end
 end)
 
@@ -367,6 +380,14 @@ RunService.PreSimulation:Connect(function(dt)
 		ignoreTimer = 0
 	end
 	local characters = if refresh then characterList() else nil
+	local now = os.clock()
+	for car, waiting in handingOver do
+		if now > waiting.Deadline then
+			-- The driver's computer never said it was ready: hand over anyway.
+			handingOver[car] = nil
+			parked[car] = nil
+		end
+	end
 	for car, physics in parked do
 		if car.Parent == nil then
 			parked[car] = nil

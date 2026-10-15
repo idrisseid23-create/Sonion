@@ -38,6 +38,7 @@ local RESPAWN_MIN_AGE = 1.5
 local MIN_SLIDE_SPEED = 7 -- studs/s (about 2 m/s); slower than this there is no slide angle
 local MAX_CONTACT_TILT = 0.8 -- wheel contacts tilted more than ~37° from the car's up count as flat
 local MIN_GROUND_DOT = 0.4 -- surfaces steeper than ~66° from the car's up are walls, not ground
+local FRAME_STIFFNESS = 1.0 -- springs may swing the body at most about one radian per frame
 local SIGNS = { -1, 1 }
 
 local function groundVelocity(part: BasePart?, point: Vector3): Vector3
@@ -269,6 +270,18 @@ function CarPhysics:Step(dt: number, input)
 	local c = 2 * suspension.DampingRatio * math.sqrt(k * wheelMass)
 	local staticLoad = wheelMass * gravity
 
+	-- How much the springs and shocks may do in one frame. Forces are set once a frame and
+	-- held until the next, so a shock or spring stiffer than the body can take over-corrects
+	-- and the car rocks itself into a wobble that never dies (worst on light cars and at low
+	-- frame rates). Bouncing is limited by each wheel's share of the mass, rolling and
+	-- pitching by how hard the body is to turn about each axis, shared by the wheels.
+	local rollMass, pitchMass = self:_modeMasses(cf, com)
+	local frameMass = math.min(wheelMass, rollMass, pitchMass)
+	local maxDamping = frameMass / dt
+	local maxStiffness = frameMass * (FRAME_STIFFNESS / dt) ^ 2
+	local antiRoll = clamp((rollMass * (FRAME_STIFFNESS / dt) ^ 2 / k - 1) / 2, 0, suspension.AntiRoll)
+	local bumpStiffness = math.min(k * suspension.BumpStop, math.max(0, maxStiffness - k))
+
 	local force = gravityFix
 	local torque = Vector3.zero
 
@@ -332,7 +345,7 @@ function CarPhysics:Step(dt: number, input)
 			local n = wheel.Normal
 			local upSpeed = (chassis:GetVelocityAtPosition(hub) - wheel.GroundVelocity):Dot(n) / math.max(n:Dot(up), 0.3)
 
-			local spring = k * x + k * suspension.AntiRoll * (x - partnerX)
+			local spring = k * x + k * antiRoll * (x - partnerX)
 			-- Shocks resist bouncing back up more than squashing down, like real ones.
 			local damping = c * (if upSpeed > 0 then suspension.ReboundDamping else 1)
 			local overBump = math.max(0, x - suspension.Travel * 0.85)
@@ -340,13 +353,13 @@ function CarPhysics:Step(dt: number, input)
 				-- Bump stop: very stiff while squashing, gives back only a little on the way up,
 				-- so big landings don't bounce you back into the air.
 				if upSpeed < 0 then
-					spring += k * suspension.BumpStop * overBump
+					spring += bumpStiffness * overBump
 					damping += c * 2
 				else
-					spring += k * suspension.BumpStop * overBump * 0.3
+					spring += bumpStiffness * overBump * 0.3
 				end
 			end
-			damping = math.min(damping, wheelMass / dt) -- stay stable at low frame rates
+			damping = math.min(damping, maxDamping)
 			local push = math.max(spring - damping * upSpeed, 0)
 			push = math.min(push, staticLoad + wheelMass * math.max(maxRise - upSpeed, 0) / dt)
 			wheel.Push = push
@@ -526,9 +539,10 @@ function CarPhysics:Step(dt: number, input)
 	local driveForce = mass * driveAccel * (if drifting then drift.Throttle else 1)
 	local brakes = tune.Brakes
 	local parkingBlend = clamp(1 - planarSpeed / 5, 0, 1)
-	-- Everything pushing the car except the tyres (gravity, springs). Parked tyres cancel it.
+	-- Everything pushing the car except the tyres (gravity, springs). Parked tyres cancel it
+	-- (see "Hold" after the tyres).
 	local nonTire = force + Vector3.new(0, -workspace.Gravity * mass, 0)
-	local share = if grounded > 0 then 1 / grounded else 0
+	local gripTotal = 0
 	for _, wheel in self.Wheels do
 		if not wheel.Grounded then
 			wheel.SpinSpeed *= 0.98
@@ -569,7 +583,7 @@ function CarPhysics:Step(dt: number, input)
 		end
 		if holding then
 			-- Parked: cancel rolling and lean against the hill.
-			longForce = -vLong * wheelMass / dt * 0.5 - nonTire:Dot(f) * share
+			longForce = -vLong * wheelMass / dt * 0.5
 		end
 		wheel.Spinning = false
 		if math.abs(longForce) > maxForce then
@@ -579,7 +593,8 @@ function CarPhysics:Step(dt: number, input)
 
 		-- Sideways: cancel part of the slide every frame.
 		local rate = math.min(tires.GripRate * grip, 0.5 / dt)
-		local wanted = -vLat * wheelMass * rate - nonTire:Dot(r) * share * parkingBlend
+		local wanted = -vLat * wheelMass * rate
+		gripTotal += maxForce
 		local latForce = clamp(wanted, -maxForce, maxForce)
 		wheel.Sliding = math.abs(wanted) > maxForce and planarSpeed > 5
 		if drifting and not wheel.IsFront then
@@ -609,6 +624,20 @@ function CarPhysics:Step(dt: number, input)
 		else
 			wheel.SpinSpeed = vLong / radius
 		end
+	end
+
+	-- Hold: parked (or nearly stopped), the tyres lean against whatever is pushing the car
+	-- along the ground (a slope, mostly). Applied at the centre of mass, so it can't twist
+	-- the car round (shared out between the wheels it would, because the centre of mass sits
+	-- a little forward), and never more than the tyres can grip.
+	if grounded > 0 then
+		local along = CarMath.safeUnit(CarMath.flatten(fwd, groundUp), fwd)
+		local across = along:Cross(groundUp)
+		local hold = -(along * (if holding then nonTire:Dot(along) else 0) + across * (nonTire:Dot(across) * parkingBlend))
+		if hold.Magnitude > gripTotal then
+			hold = hold.Unit * gripTotal
+		end
+		force += hold
 	end
 
 	------------------------------------------------------------------------------
@@ -673,6 +702,39 @@ function CarPhysics:Step(dt: number, input)
 	end
 
 	self:_setForces(force, torque)
+end
+
+-- How hard the whole car (the assembly) is to spin about a world axis through its centre
+-- of mass.
+function CarPhysics:_inertiaAbout(axis: Vector3): number
+	local chassis = self.Chassis
+	if self.CanAskInertia ~= false then
+		local ok, torque = pcall(chassis.AngularAccelerationToTorque, chassis, axis)
+		if ok and typeof(torque) == "Vector3" then
+			return math.max(torque:Dot(axis), 1e-3)
+		end
+		self.CanAskInertia = false
+	end
+	-- Fallback: the body's box holding all the mass.
+	local size = self.Tune.Body.Size
+	local local_ = chassis.CFrame:VectorToObjectSpace(axis)
+	local m = chassis.AssemblyMass / 12
+	return m * (local_.X ^ 2 * (size.Y ^ 2 + size.Z ^ 2) + local_.Y ^ 2 * (size.X ^ 2 + size.Z ^ 2) + local_.Z ^ 2 * (size.X ^ 2 + size.Y ^ 2))
+end
+
+-- The mass each wheel effectively pushes against when the car rolls and when it pitches:
+-- how hard the body is to turn about that axis, shared out by each wheel's leverage.
+function CarPhysics:_modeMasses(cf: CFrame, com: Vector3): (number, number)
+	local right, fwd = cf.RightVector, cf.LookVector
+	local sideSum, lengthSum = 0, 0
+	for _, wheel in self.Wheels do
+		local arm = cf:PointToWorldSpace(wheel.Mount) - com
+		sideSum += arm:Dot(right) ^ 2
+		lengthSum += arm:Dot(fwd) ^ 2
+	end
+	local rollMass = self:_inertiaAbout(fwd) / math.max(sideSum, 1e-3)
+	local pitchMass = self:_inertiaAbout(right) / math.max(lengthSum, 1e-3)
+	return rollMass, pitchMass
 end
 
 -- Call when the driver's computer takes the car over: start from a clean, still state and

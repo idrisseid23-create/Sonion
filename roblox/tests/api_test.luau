@@ -89,10 +89,19 @@ step("prompt triggered -> sit -> start driving")
 local groupBefore, masslessBefore = hrp.CollisionGroup, hrp.Massless
 seat.DrivePrompt.Triggered:Fire(player)
 assert(seat.Occupant == humanoid, "seated")
-assert(hrp.Massless == true and hrp.CollisionGroup == "CarDriver", "driver weightless and not colliding while seated")
-assert(R.collisionGroups.CarDriver and R.collisionGroups.CarDriver.Default == false, "driver group collides with nothing")
+assert(hrp.Massless == true and hrp.CollisionGroup == "CarDriver", "driver weightless and in the driver group while seated")
+assert(R.collisionGroups.CarBody.CarDriver == false, "drivers don't collide with car bodies")
+assert(R.collisionGroups.CarDriver.Default == nil, "drivers still collide with the world")
+assert(car.PrimaryPart.CollisionGroup == "CarBody" and car.Cabin.CollisionGroup == "CarBody", "car bodies in the CarBody group")
 assert(R.casBindings.CarDriving, "driving keys bound")
 assert(R.renderSteps.CarChaseCamera, "camera bound")
+
+step("client takes over and tells the server")
+R.RunService.PreSimulation:Fire(1 / 60)
+R.isServer = true
+remote.OnServerEvent:Fire(player, "Ready", car)
+remote.OnServerEvent:Fire(player, "Ready", "not a car") -- junk from a client is ignored
+R.isServer = false
 
 step("drive 3 seconds holding W, then D, with debug panel")
 R.casBindings.CarDriving.fn("CarDriving", Enum.UserInputState.Begin, { KeyCode = Enum.KeyCode.T })

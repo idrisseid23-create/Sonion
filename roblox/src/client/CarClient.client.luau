@@ -72,6 +72,13 @@ local function stopDriving()
 	end
 	local current = session
 	session = nil
+	-- Step out standing still, not flung at the speed the car was going.
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if root then
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+	end
 	current.Physics:Destroy()
 	current.Input:Destroy()
 	current.Camera:Destroy()
@@ -129,10 +136,15 @@ end
 
 -- Driving starts once the car is ours: from a still, clean state, so nothing left over
 -- from getting in (or from the server) can spin or lift it.
-local function takeOver(current)
+local function takeOver(current, owned: boolean)
 	current.Ready = true
 	local chassis = current.Physics.Chassis
 	current.Physics:Settle()
+	-- Tell the server it can stop holding the car.
+	remote:FireServer("Ready", current.Car)
+	if not owned then
+		warn("[CarClient] This computer still isn't running the car's physics after 1 second; driving may lag until it does.")
+	end
 	local root = chassis.AssemblyRootPart
 	if root and root ~= chassis then
 		warn(string.format(
@@ -155,14 +167,17 @@ local function watchForSpin(current, dt: number, state)
 	if idle and spin > 1.5 then
 		current.SpinWarned = true
 		local root = chassis.AssemblyRootPart
+		local character = player.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 		warn(string.format(
-			"[CarClient] The car is spinning by itself after getting in: spin %.1f rad/s, velocity %s, wheels down %d, state %s, root %s, mass %.0f.",
+			"[CarClient] The car is spinning by itself after getting in: spin %.1f rad/s, velocity %s, wheels down %d, state %s, root %s, mass %.0f, avatar %s.",
 			spin,
 			tostring(chassis.AssemblyLinearVelocity),
 			current.Physics.GroundedWheels,
 			current.Physics.State,
 			if root then root:GetFullName() else "none",
-			chassis.AssemblyMass
+			chassis.AssemblyMass,
+			if humanoid then humanoid:GetState().Name else "?"
 		))
 	end
 end
@@ -218,8 +233,9 @@ RunService.PreSimulation:Connect(function(dt)
 			if not current.Ready then
 				-- Wait (up to a second) for the server to hand the car to this computer.
 				current.WaitTime += dt
-				if ownsCar(physics.Chassis) or current.WaitTime > 1 then
-					takeOver(current)
+				local owned = ownsCar(physics.Chassis)
+				if owned or current.WaitTime > 1 then
+					takeOver(current, owned)
 				end
 			end
 			if current.Ready then

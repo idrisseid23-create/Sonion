@@ -2,6 +2,7 @@
 -- visible parts to preview/cars.json, so preview/render.mjs can draw them.
 -- Run from the tests folder: ./luaurun preview/export.luau > preview/cars.json
 local R = assert(__loadfile("./robloxmock.luau"))()
+R.isServer = true -- CarBuilder registers collision groups, which only the server can do
 local SRC = "../src"
 
 local carSystem = R.new("Folder")

@@ -6,8 +6,10 @@ tuning change without opening Studio.
 - `physics_test.luau` drives the car in a small physics simulation: resting, 0 to top speed,
   braking, reverse, steering direction, rollovers, handbrake drifts (including a full circle
   round a cone at 30 and 60 fps), ramp jumps, air control rates, backflips, crashes and
-  respawns, parking on hills, boost, ice, curbs, all three cars, and getting in (a car that
-  sank, or got kicked, as you got in). `physics_test_60hz.luau` runs it all again with the
+  respawns, parking on hills, boost, ice, curbs, all three cars, getting in (a car that
+  sank, or got kicked, as you got in), and a parked car nudged while frame times jitter at 60
+  and 30 fps (it must stop rocking). The simulated car has the same weight and inertia as
+  CarBuilder's parts. `physics_test_60hz.luau` runs it all again with the
   physics stepping at 60 Hz instead of 240 Hz, because Roblox can run simple assemblies that
   slowly and some bugs only show there.
 - `api_test.luau` runs the server and client scripts against a fake Roblox that knows every

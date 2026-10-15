@@ -13,10 +13,25 @@
 --     Body (Folder)                     the parts you see (no mass, no collisions)
 
 local CollectionService = game:GetService("CollectionService")
+local PhysicsService = game:GetService("PhysicsService")
 
 local CarLooks = require(script.Parent:WaitForChild("CarLooks"))
 
 local CarBuilder = {}
+
+-- Collision groups: the car's own collision boxes ("CarBody") and the avatar of whoever is
+-- driving ("CarDriver"). A driver doesn't collide with car bodies (they sit inside one), but
+-- still stands on floors and bumps into everything else.
+CarBuilder.BodyGroup = "CarBody"
+CarBuilder.DriverGroup = "CarDriver"
+local function ensureGroups()
+	for _, group in { CarBuilder.BodyGroup, CarBuilder.DriverGroup } do
+		if not PhysicsService:IsCollisionGroupRegistered(group) then
+			PhysicsService:RegisterCollisionGroup(group)
+		end
+	end
+	PhysicsService:CollisionGroupSetCollidable(CarBuilder.BodyGroup, CarBuilder.DriverGroup, false)
+end
 
 local function part(props): Part
 	local p = Instance.new("Part")
@@ -43,6 +58,7 @@ end
 
 -- tune: a table from CarConfig.Get. cframe: where the body centre goes (upright).
 function CarBuilder.Build(tune, cframe: CFrame): Model
+	ensureGroups()
 	local body = tune.Body
 	local wheels = tune.Wheels
 	local look = tune.Look
@@ -64,27 +80,35 @@ function CarBuilder.Build(tune, cframe: CFrame): Model
 		Transparency = 1,
 		CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.25, 0, 1, 1),
 		RootPriority = 127, -- stays the root even with a driver sitting in it
+		CollisionGroup = CarBuilder.BodyGroup,
 	})
 	chassis.Parent = model
 	model.PrimaryPart = chassis
 
-	-- Hidden weight that pulls the centre of mass low and a little forward.
-	-- It weighs the same as the body, so it sits twice as far out as the target point.
+	-- Hidden weights, low at the four wheel corners like a real car's wheels and axles. They
+	-- pull the centre of mass low and a little forward, and they make the car hard to roll
+	-- and pitch: without that, a small light body rocks itself into a wobble.
+	-- Together they weigh the same as the body, so their middle sits twice as far out as the
+	-- centre of mass we want.
 	local chassisMass = 0.7 * size.X * size.Y * size.Z
-	local ballastSize = Vector3.new(2, 1, 2)
-	local ballastDensity = math.clamp(chassisMass / (ballastSize.X * ballastSize.Y * ballastSize.Z), 0.01, 100)
-	local ballast = part({
-		Name = "Ballast",
-		Size = ballastSize,
-		CFrame = cframe * CFrame.new(tune.CenterOfMass * 2),
-		Transparency = 1,
-		CanCollide = false,
-		CanQuery = false,
-		CanTouch = false,
-		CustomPhysicalProperties = PhysicalProperties.new(ballastDensity, 0.3, 0, 1, 1),
-	})
-	ballast.Parent = model
-	weld(chassis, ballast)
+	local ballastSize = Vector3.new(1, 1, 1)
+	local ballastDensity = math.clamp(chassisMass / 4 / (ballastSize.X * ballastSize.Y * ballastSize.Z), 0.01, 100)
+	local middle = tune.CenterOfMass * 2
+	for _, corner in { { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 } } do
+		local offset = Vector3.new(corner[1] * wheels.TrackWidth / 2, 0, corner[2] * wheels.WheelBase / 2)
+		local ballast = part({
+			Name = "Ballast",
+			Size = ballastSize,
+			CFrame = cframe * CFrame.new(middle + offset),
+			Transparency = 1,
+			CanCollide = false,
+			CanQuery = false,
+			CanTouch = false,
+			CustomPhysicalProperties = PhysicalProperties.new(ballastDensity, 0.3, 0, 1, 1),
+		})
+		ballast.Parent = model
+		weld(chassis, ballast)
+	end
 
 	-- Cabin collision box. It collides, so roof landings are real.
 	local cabinSize = body.CabinSize
@@ -96,6 +120,7 @@ function CarBuilder.Build(tune, cframe: CFrame): Model
 		Massless = true,
 		CanTouch = false,
 		CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.25, 0, 1, 1),
+		CollisionGroup = CarBuilder.BodyGroup,
 	})
 	cabin.Parent = model
 	weld(chassis, cabin)

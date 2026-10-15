@@ -318,10 +318,25 @@ workspace = Workspace
 -- Box body with given mass and size; comLocal = centre of mass in chassis space.
 function Mock.makeCar(tune, startCF)
 	local size = tune.Body.Size
-	local mass = 300
-	local w, h, l = size.X, size.Y + tune.Body.CabinSize.Y, size.Z
-	local I = vec(mass / 12 * (h * h + l * l), mass / 12 * (w * w + l * l), mass / 12 * (w * w + h * h))
+	-- Mass and inertia the way Roblox works them out for CarBuilder's parts: the Chassis box
+	-- (density 0.7) plus four ballast blocks, each a quarter of the chassis's weight, low at
+	-- the wheel corners. Everything else on the car is Massless (the driver too).
 	local comLocal = tune.CenterOfMass
+	local chassisMass = 0.7 * size.X * size.Y * size.Z
+	local mass = chassisMass * 2
+	local function boxInertia(m, s)
+		return vec(m / 12 * (s.Y * s.Y + s.Z * s.Z), m / 12 * (s.X * s.X + s.Z * s.Z), m / 12 * (s.X * s.X + s.Y * s.Y))
+	end
+	local function offsetInertia(m, d)
+		return vec(m * (d.Y * d.Y + d.Z * d.Z), m * (d.X * d.X + d.Z * d.Z), m * (d.X * d.X + d.Y * d.Y))
+	end
+	local I = boxInertia(chassisMass, size) + offsetInertia(chassisMass, -comLocal)
+	for _, sx in { -1, 1 } do
+		for _, sz in { -1, 1 } do
+			local at = vec(sx * tune.Wheels.TrackWidth / 2, 2 * comLocal.Y, 2 * comLocal.Z + sz * tune.Wheels.WheelBase / 2)
+			I = I + boxInertia(chassisMass / 4, vec(1, 1, 1)) + offsetInertia(chassisMass / 4, at - comLocal)
+		end
+	end
 	local body = {
 		mass = mass,
 		I = I,
@@ -382,6 +397,10 @@ function Mock.makeCar(tune, startCF)
 	end
 	function methods:GetVelocityAtPosition(q)
 		return body.v + body.w:Cross(q - body.p)
+	end
+	function methods:AngularAccelerationToTorque(alpha)
+		local a = body.R:VectorToObjectSpace(alpha)
+		return body.R:VectorToWorldSpace(vec(body.I.X * a.X, body.I.Y * a.Y, body.I.Z * a.Z))
 	end
 	function methods:IsA(cls)
 		return cls == "BasePart" or cls == "Part"
