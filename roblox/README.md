@@ -150,6 +150,12 @@ list what they change from Bolt.
   and `CarTorque`).
 - **The wheels you see are just for looks.** Each player's computer spins and steers them
   locally, so they cost nothing on the network.
+- **Getting in.** Your avatar becomes weightless and stops colliding (collision group
+  `CarDriver`) while you drive, so it can't tip the car or push against it; it is placed in the
+  seat before the seat grabs it, so sitting never moves the car. Your computer starts driving
+  only once it controls the car, from a still start, and soaks up any jolt for the first
+  moment. When you get out you're stood beside the driver's door and your avatar gets its
+  weight and collisions back.
 
 ## How the cars are built
 
@@ -186,6 +192,9 @@ drawing the parts.
   simulation, an API checker and 3D renders of the cars (see `tests/`), and every test passes.
   If anything feels or looks off in Studio, write down what you did and what happened.
 - If a car shakes or jitters on some surfaces, try `Suspension.CastShape = "Ray"`.
+- **If a car misbehaves when you get in,** look in the Output window: the car prints a
+  `[CarClient]` warning if it is anchored to the wrong part or starts spinning by itself, with
+  what the physics saw. Press **T** while driving for live numbers ("run here" should say yes).
 - **Not built yet:**
   - sounds (engine pitch from `physics.Speed`, tyre squeal from `wheel.Sliding`);
   - near-miss boost (call `AddBoost(5)`);

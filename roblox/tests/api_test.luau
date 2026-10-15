@@ -86,8 +86,11 @@ assert(playerGui:FindFirstChild("CarHud"), "HUD created")
 car = cars:GetChildren()[1]
 local seat = car:FindFirstChild("DriverSeat")
 step("prompt triggered -> sit -> start driving")
+local groupBefore, masslessBefore = hrp.CollisionGroup, hrp.Massless
 seat.DrivePrompt.Triggered:Fire(player)
 assert(seat.Occupant == humanoid, "seated")
+assert(hrp.Massless == true and hrp.CollisionGroup == "CarDriver", "driver weightless and not colliding while seated")
+assert(R.collisionGroups.CarDriver and R.collisionGroups.CarDriver.Default == false, "driver group collides with nothing")
 assert(R.casBindings.CarDriving, "driving keys bound")
 assert(R.renderSteps.CarChaseCamera, "camera bound")
 
@@ -121,6 +124,8 @@ humanoid.Seated:Fire(false, nil)
 assert(R.casBindings.CarDriving == nil, "keys unbound after exit")
 assert(R.renderSteps.CarChaseCamera == nil, "camera unbound after exit")
 assert(R.workspace.CurrentCamera.CameraType == Enum.CameraType.Custom, "camera restored")
+assert(hrp.Massless == masslessBefore and hrp.CollisionGroup == groupBefore, "driver weight and collisions restored after getting out")
+assert(seat.DrivePrompt.Enabled, "prompt back on after getting out")
 R.RunService.PreSimulation:Fire(1 / 60)
 
 local stubs = {}

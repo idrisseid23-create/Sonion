@@ -453,6 +453,9 @@ function Mock.makeCar(tune, startCF)
 				local vq = body.v + body.w:Cross(q - body.p)
 				local vn = vq:Dot(n)
 				local fn = math.max(m * 800 * depth - m * 30 * vn, 0)
+				-- Never push harder than it takes to stop the corner going in (like Roblox's
+				-- solver); without this a step edge launches the car at low physics rates.
+				fn = math.min(fn, m * 0.5 * (math.max(-vn, 0) + 4 * depth) / h)
 				local vt = vq - n * vn
 				local ft = Vector3.zero
 				if vt.Magnitude > 1e-4 then
@@ -486,7 +489,9 @@ function Mock.makeCar(tune, startCF)
 
 	local car = { model = model, chassis = chassis, body = body, force = force, torque = torque }
 	function car.simulate(dt)
-		local sub = 4
+		-- Roblox steps physics at 240 Hz, but its adaptive stepping can run a simple
+		-- assembly at 60 Hz: PHYSICS_SUBSTEPS lets the tests try both.
+		local sub = Mock.Substeps or 4
 		for _ = 1, sub do
 			integrate(dt / sub)
 		end

@@ -234,7 +234,7 @@ function CarHud.new(player: Player)
 	self.TouchFrame = touch
 	self.TouchButtons = {}
 	self.TouchReleases = {}
-	local function touchButton(name: string, text: string, size: number, position: UDim2, anchor: Vector2, color: Color3?)
+	local function touchButton(name: string, text: string, size: number, position: UDim2, anchor: Vector2, color: Color3?, steering: boolean?)
 		local b = button({
 			Name = name,
 			Text = text,
@@ -246,19 +246,79 @@ function CarHud.new(player: Player)
 			AutoButtonColor = false,
 			Parent = touch,
 		})
-		local release = holdable(b, function(down)
-			if self.Input then
-				self.Input.Touch[name] = down
-			end
-			b.BackgroundTransparency = if down then 0 else 0.15
-		end)
+		if not steering then
+			local release = holdable(b, function(down)
+				if self.Input then
+					self.Input.Touch[name] = down
+				end
+				b.BackgroundTransparency = if down then 0 else 0.15
+			end)
+			table.insert(self.TouchReleases, release)
+		end
 		self.TouchButtons[name] = b
-		table.insert(self.TouchReleases, release)
 		return b
 	end
 	-- Left thumb steers. Right thumb: gas, brake, drift, boost. Middle stays clear.
-	touchButton("Left", "◀", 112, UDim2.new(0, 24, 1, -24), Vector2.new(0, 1))
-	touchButton("Right", "▶", 112, UDim2.new(0, 150, 1, -24), Vector2.new(0, 1))
+	local leftButton = touchButton("Left", "◀", 112, UDim2.new(0, 24, 1, -24), Vector2.new(0, 1), nil, true)
+	local rightButton = touchButton("Right", "▶", 112, UDim2.new(0, 150, 1, -24), Vector2.new(0, 1), nil, true)
+
+	-- Steering arrows follow the finger: slide from one to the other without lifting.
+	local steerTouches: { [InputObject]: string | false } = {}
+	local function arrowAt(position: Vector3): string | false
+		for name, b in { Left = leftButton, Right = rightButton } do
+			local corner, size = b.AbsolutePosition, b.AbsoluteSize
+			if position.X >= corner.X and position.X <= corner.X + size.X
+				and position.Y >= corner.Y and position.Y <= corner.Y + size.Y then
+				return name
+			end
+		end
+		return false
+	end
+	local function refreshSteer()
+		local held = { Left = false, Right = false }
+		for _, side in steerTouches do
+			if side then
+				held[side] = true
+			end
+		end
+		for name, b in { Left = leftButton, Right = rightButton } do
+			if self.Input then
+				self.Input.Touch[name] = held[name]
+			end
+			b.BackgroundTransparency = if held[name] then 0 else 0.15
+		end
+	end
+	for name, b in { Left = leftButton, Right = rightButton } do
+		b.InputBegan:Connect(function(input)
+			local kind = input.UserInputType
+			if kind == Enum.UserInputType.Touch or kind == Enum.UserInputType.MouseButton1 then
+				steerTouches[input] = name
+				refreshSteer()
+			end
+		end)
+	end
+	UserInputService.InputChanged:Connect(function(input)
+		if steerTouches[input] ~= nil and input.UserInputType == Enum.UserInputType.Touch then
+			steerTouches[input] = arrowAt(input.Position)
+			refreshSteer()
+		end
+	end)
+	UserInputService.InputEnded:Connect(function(input)
+		if steerTouches[input] ~= nil then
+			steerTouches[input] = nil
+			refreshSteer()
+		end
+	end)
+	table.insert(self.TouchReleases, function()
+		table.clear(steerTouches)
+		refreshSteer()
+	end)
+	-- Switching apps can swallow the "finger lifted" event: let go of every button.
+	UserInputService.WindowFocusReleased:Connect(function()
+		for _, release in self.TouchReleases do
+			release()
+		end
+	end)
 	touchButton("Gas", "GAS", 132, UDim2.new(1, -24, 1, -24), Vector2.new(1, 1), Color3.fromRGB(60, 120, 60))
 	touchButton("Brake", "BRAKE", 104, UDim2.new(1, -170, 1, -24), Vector2.new(1, 1), Color3.fromRGB(130, 50, 50))
 	touchButton("Handbrake", "DRIFT", 96, UDim2.new(1, -174, 1, -142), Vector2.new(1, 1))
@@ -462,6 +522,14 @@ function CarHud:Update(physics)
 			string.format("boost     %.0f", physics.Boost),
 			string.format("rear grip %.2f (drift)", physics.DriftGrip),
 			string.format("wheels down %d / %d", physics.GroundedWheels, #physics.Wheels),
+			(function()
+				local chassis = physics.Chassis
+				local ok, age = pcall(function()
+					return chassis.ReceiveAge
+				end)
+				local root = chassis.AssemblyRootPart
+				return string.format("run here  %s   root %s   mass %.0f", if ok and age == 0 then "yes" else "no", if root then root.Name else "?", chassis.AssemblyMass)
+			end)(),
 			"",
 			"wheel  squash  load  grip  slide",
 		}

@@ -36,6 +36,8 @@ local SAFE_SPOT_INTERVAL = 0.25
 local SAFE_SPOT_COUNT = 40
 local RESPAWN_MIN_AGE = 1.5
 local MIN_SLIDE_SPEED = 7 -- studs/s (about 2 m/s); slower than this there is no slide angle
+local MAX_CONTACT_TILT = 0.8 -- wheel contacts tilted more than ~37° from the car's up count as flat
+local MIN_GROUND_DOT = 0.4 -- surfaces steeper than ~66° from the car's up are walls, not ground
 local SIGNS = { -1, 1 }
 
 local function groundVelocity(part: BasePart?, point: Vector3): Vector3
@@ -149,6 +151,7 @@ function CarPhysics.new(model: Model, tune, options)
 	self.SafeSpots = {}
 	self.Checkpoint = nil
 	self.LastGoodSpeed = 0
+	self.SettleTimer = 0
 
 	-- Set this to a function(eventName, data) to hear about drifts, landings, flips and crashes.
 	self.OnEvent = nil
@@ -205,7 +208,7 @@ function CarPhysics:_castWheel(mount: Vector3, up: Vector3): (RaycastResult?, nu
 	if suspension.CastShape == "Sphere" then
 		local sphereRadius = radius * 0.8
 		local hit = workspace:Spherecast(origin, sphereRadius, -up * (reach - sphereRadius), self.RayParams)
-		if hit and hit.Normal:Dot(up) > 0.4 then
+		if hit and hit.Normal:Dot(up) > MIN_GROUND_DOT then
 			-- Where the sphere's centre was when it touched, measured along the cast.
 			local centre = hit.Position + hit.Normal * sphereRadius
 			local travelled = (origin - centre):Dot(up)
@@ -214,7 +217,7 @@ function CarPhysics:_castWheel(mount: Vector3, up: Vector3): (RaycastResult?, nu
 	end
 
 	local hit = workspace:Raycast(origin, -up * reach, self.RayParams)
-	if hit and hit.Normal:Dot(up) > 0.1 then
+	if hit and hit.Normal:Dot(up) > MIN_GROUND_DOT then
 		return hit, hit.Distance - 2 * radius
 	end
 	return nil, suspension.Travel
@@ -284,7 +287,10 @@ function CarPhysics:Step(dt: number, input)
 			wheel.Extension = extension
 			wheel.Compression = suspension.Travel - extension
 			wheel.ContactPoint = hit.Position
-			wheel.Normal = hit.Normal
+			-- A wheel catching a kerb edge gets a slanted normal. Pushing along it would turn
+			-- speed along the road into a hard shove upwards, so steep contacts count as flat
+			-- (the car's own up) for the springs and tyres.
+			wheel.Normal = if hit.Normal:Dot(up) >= MAX_CONTACT_TILT then hit.Normal else up
 			wheel.Instance = hit.Instance
 			wheel.Material = hit.Material
 			wheel.Grip = self:_surfaceGrip(hit)
@@ -294,7 +300,7 @@ function CarPhysics:Step(dt: number, input)
 			else
 				groundedRear += 1
 			end
-			normalSum += hit.Normal
+			normalSum += wheel.Normal
 		else
 			wheel.Grounded = false
 			wheel.Extension = suspension.Travel
@@ -305,6 +311,8 @@ function CarPhysics:Step(dt: number, input)
 			wheel.Spinning = false
 		end
 	end
+
+	local groundUp = if grounded > 0 then normalSum.Unit else Vector3.yAxis
 
 	-- The most one spring may push: hold its share of the car up and lift it at no more than
 	-- MaxRiseSpeed. Without this a car that sank onto its body (getting in, a bad landing)
@@ -318,7 +326,7 @@ function CarPhysics:Step(dt: number, input)
 			local partnerX = if partner and partner.Grounded then math.min(partner.Compression, suspension.Travel) else 0
 			local hub = wheel.MountWorld - up * math.max(wheel.Extension, 0)
 			wheel.GroundVelocity = groundVelocity(wheel.Instance, wheel.ContactPoint)
-			-- How fast the wheel is leaving the ground (+) or pressing into it (-). Measured
+			-- How fast the wheel is leaving the ground (+) or pressing into it (-), measured
 			-- along the ground's normal: the car's own up tilts a little with pitch, and at
 			-- speed that would read part of the forward motion as the spring stretching.
 			local n = wheel.Normal
@@ -341,14 +349,32 @@ function CarPhysics:Step(dt: number, input)
 			damping = math.min(damping, wheelMass / dt) -- stay stable at low frame rates
 			local push = math.max(spring - damping * upSpeed, 0)
 			push = math.min(push, staticLoad + wheelMass * math.max(maxRise - upSpeed, 0) / dt)
-			local lift = up * push
-			force += lift
-			torque += (hub - com):Cross(lift)
+			wheel.Push = push
+			wheel.Hub = hub
 			wheel.Load = clamp(spring / staticLoad, 0, tires.MaxLoad)
 		end
 	end
 
-	local groundUp = if grounded > 0 then normalSum.Unit else Vector3.yAxis
+	-- The same limit for the whole car: whatever mix of wheels is touching (say only the back
+	-- two, after a nose-first landing), the springs together never lift the body faster than
+	-- MaxRiseSpeed.
+	local totalPush = 0
+	for _, wheel in self.Wheels do
+		if wheel.Grounded then
+			totalPush += wheel.Push
+		end
+	end
+	local riseSpeed = vel:Dot(up)
+	local maxTotal = mass * (gravity + math.max(maxRise - riseSpeed, 0) / dt)
+	local pushScale = if totalPush > maxTotal then maxTotal / totalPush else 1
+	for _, wheel in self.Wheels do
+		if wheel.Grounded then
+			local lift = up * (wheel.Push * pushScale)
+			force += lift
+			torque += (wheel.Hub - com):Cross(lift)
+		end
+	end
+
 	self.GroundedWheels = grounded
 	self.GroundNormal = groundUp
 
@@ -609,13 +635,27 @@ function CarPhysics:Step(dt: number, input)
 	if airborne then
 		self:_airControl(dt, cf, rawThrottle - rawBrake, steerInput, handbrake)
 	end
-	if not airborne and self.AbsorbTimer > 0 and grounded > 0 then
-		-- Just landed: soak up the bounce so the car stays down.
+	if not airborne and self.AbsorbTimer > 0 then
+		-- Just landed: soak up the bounce so the car stays down (even if a bounce has
+		-- briefly lifted the wheels).
 		self.AbsorbTimer -= dt
 		local landingVel = chassis.AssemblyLinearVelocity
 		local away = landingVel:Dot(groundUp)
 		if away > 2 then
 			chassis.AssemblyLinearVelocity = landingVel - groundUp * (away - 2)
+		end
+	end
+	if self.SettleTimer > 0 then
+		-- Just got in: soak up any spin or lift left over from the hand-over, as long as
+		-- the driver isn't asking for anything yet.
+		self.SettleTimer -= dt
+		local idle = rawThrottle == 0 and rawBrake == 0 and math.abs(steerInput) < 0.05 and not handbrake
+		if idle and speed < 8 then
+			chassis.AssemblyAngularVelocity *= math.exp(-12 * dt)
+			local v = chassis.AssemblyLinearVelocity
+			if v.Y > 0.5 then
+				chassis.AssemblyLinearVelocity = Vector3.new(v.X, 0.5, v.Z)
+			end
 		end
 	end
 	if not airborne and self.LandingTimer > 0 and grounded > 0 then
@@ -633,6 +673,25 @@ function CarPhysics:Step(dt: number, input)
 	end
 
 	self:_setForces(force, torque)
+end
+
+-- Call when the driver's computer takes the car over: start from a clean, still state and
+-- settle for a moment (see SettleTimer in Step).
+function CarPhysics:Settle(duration: number?)
+	local chassis = self.Chassis
+	self.State = CarPhysics.States.Grounded
+	self.NoContactTime = 0
+	self.AirTime = 0
+	self.LandingTimer = 0
+	self.AbsorbTimer = 0
+	self.StuckTimer = 0
+	self.CrashTimer = 0
+	self.Holding = false
+	if chassis.AssemblyLinearVelocity.Magnitude < 8 then
+		chassis.AssemblyLinearVelocity = Vector3.zero
+		chassis.AssemblyAngularVelocity = Vector3.zero
+	end
+	self.SettleTimer = duration or 0.75
 end
 
 function CarPhysics:_airControl(dt: number, cf: CFrame, pitchInput: number, steerInput: number, rollMode: boolean)

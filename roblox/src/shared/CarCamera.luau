@@ -56,26 +56,37 @@ function CarCamera.new(car: Model, tune, physics)
 
 	self.Camera.CameraType = Enum.CameraType.Scriptable
 
+	-- Only fingers that start on empty screen turn the camera (not ones on GAS or the arrows).
+	self.OrbitTouches = {}
 	table.insert(self.Connections, UserInputService.InputBegan:Connect(function(input, processed)
-		if not processed and input.UserInputType == Enum.UserInputType.MouseButton2 then
+		if processed then
+			return
+		end
+		if input.UserInputType == Enum.UserInputType.MouseButton2 then
 			UserInputService.MouseBehavior = Enum.MouseBehavior.LockCurrentPosition
+		elseif input.UserInputType == Enum.UserInputType.Touch then
+			self.OrbitTouches[input] = true
 		end
 	end))
 	table.insert(self.Connections, UserInputService.InputEnded:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton2 then
 			UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		elseif input.UserInputType == Enum.UserInputType.Touch then
+			self.OrbitTouches[input] = nil
 		end
 	end))
 	table.insert(self.Connections, UserInputService.InputChanged:Connect(function(input, processed)
-		if processed then
-			return
-		end
-		if input.UserInputType == Enum.UserInputType.MouseMovement
-			and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
-			self:_orbit(input.Delta.X * MOUSE_SENSITIVITY, input.Delta.Y * MOUSE_SENSITIVITY)
-		elseif input.UserInputType == Enum.UserInputType.Touch then
+		if input.UserInputType == Enum.UserInputType.MouseMovement then
+			if not processed and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+				self:_orbit(input.Delta.X * MOUSE_SENSITIVITY, input.Delta.Y * MOUSE_SENSITIVITY)
+			end
+		elseif input.UserInputType == Enum.UserInputType.Touch and self.OrbitTouches[input] then
 			self:_orbit(input.Delta.X * TOUCH_SENSITIVITY, input.Delta.Y * TOUCH_SENSITIVITY)
 		end
+	end))
+	table.insert(self.Connections, UserInputService.WindowFocusReleased:Connect(function()
+		table.clear(self.OrbitTouches)
+		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 	end))
 
 	RunService:BindToRenderStep(BIND_NAME, Enum.RenderPriority.Camera.Value + 1, function(dt)

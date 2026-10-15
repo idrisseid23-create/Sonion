@@ -424,6 +424,13 @@ function methodImpl.PivotTo(self, cf)
 		rawget(self, "__props").CFrame = cf
 	end
 end
+function methodImpl.GetPivot(self)
+	if rawget(self, "__class") == "Model" then
+		local primary = rawget(self, "__props").PrimaryPart
+		return if primary then rawget(primary, "__props").CFrame or CFrame.identity else CFrame.identity
+	end
+	return rawget(self, "__props").CFrame or CFrame.identity
+end
 function methodImpl.GetVelocityAtPosition(self, p)
 	assert(typeof(p) == "Vector3")
 	return Vector3.zero
@@ -564,6 +571,31 @@ R.Players = service("Players", {
 	end,
 })
 
+R.collisionGroups = { Default = {} }
+R.PhysicsService = service("PhysicsService", {
+	RegisterCollisionGroup = function(_, name)
+		assert(R.isServer, "RegisterCollisionGroup only works on the server")
+		assert(type(name) == "string" and R.collisionGroups[name] == nil, "RegisterCollisionGroup: bad or duplicate name")
+		R.collisionGroups[name] = {}
+	end,
+	IsCollisionGroupRegistered = function(_, name)
+		return R.collisionGroups[name] ~= nil
+	end,
+	GetRegisteredCollisionGroups = function()
+		local out = {}
+		for name in R.collisionGroups do
+			table.insert(out, { name = name, id = #out, mask = 0 })
+		end
+		return out
+	end,
+	CollisionGroupSetCollidable = function(_, a, b, collidable)
+		assert(R.collisionGroups[a] and R.collisionGroups[b], "CollisionGroupSetCollidable: unregistered group")
+		assert(type(collidable) == "boolean", "CollisionGroupSetCollidable: needs a boolean")
+		R.collisionGroups[a][b] = collidable
+		R.collisionGroups[b][a] = collidable
+	end,
+})
+
 R.ReplicatedStorage = service("ReplicatedStorage")
 R.ServerScriptService = service("ServerScriptService")
 
@@ -609,6 +641,7 @@ local services = {
 	UserInputService = R.UserInputService,
 	ContextActionService = R.ContextActionService,
 	TweenService = R.TweenService,
+	PhysicsService = R.PhysicsService,
 	Players = R.Players,
 	ReplicatedStorage = R.ReplicatedStorage,
 	ServerScriptService = R.ServerScriptService,

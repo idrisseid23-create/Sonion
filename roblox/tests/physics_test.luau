@@ -10,6 +10,7 @@ local function loadWithScript(path, scriptObj)
 end
 
 local Mock = assert(__loadfile(here .. "mock.luau"))()
+Mock.Substeps = SUBSTEPS or 4 -- set SUBSTEPS before loading to test other physics rates
 
 -- module tree: script.Parent.<Name>
 local folder = {}
@@ -654,6 +655,39 @@ for _, case in {
 	check(overshoot < 0.6, case.name .. ": not thrown up")
 	check(not leftGround, case.name .. ": never leaves the ground again")
 	check(math.abs(finalY - car.phys.RideHeight) < 0.1, case.name .. ": settles at ride height")
+end
+
+print("24. Getting in: leftover spin and lift from the hand-over are soaked up")
+do
+	flatWorld()
+	local car = newCar()
+	run(car, 1, input({}))
+	car.phys:Settle()
+	local h0 = heading(car)
+	local maxY = 0
+	run(car, 1.5, input({}), 1 / 60, function(t)
+		local frame = math.floor(t * 60 + 0.5)
+		if frame == 3 or frame == 12 then
+			-- Something (the seat weld, the network hand-over) kicks the car.
+			car.chassis.AssemblyAngularVelocity = Vector3.new(0, 4, 0)
+			car.chassis.AssemblyLinearVelocity = Vector3.new(0, 6, 0)
+		end
+		maxY = math.max(maxY, car.chassis.Position.Y)
+	end)
+	local turned = math.deg(math.abs(heading(car) - h0))
+	local spin = car.chassis.AssemblyAngularVelocity.Magnitude
+	print(string.format("     turned %.1f deg, spin left %.2f rad/s, rose %.2f studs above ride height", turned, spin, maxY - car.phys.RideHeight))
+	check(turned < 15, "a kick on entry doesn't turn the car round")
+	check(spin < 0.05, "and the spin dies away")
+	check(maxY - car.phys.RideHeight < 0.5, "and the car isn't lifted")
+
+	-- Driving off straight away is not held back by the settling.
+	local car2 = newCar()
+	run(car2, 0.5, input({}))
+	car2.phys:Settle()
+	run(car2, 1, input({ Throttle = 1 }))
+	print(string.format("     driving off at once: %.1f studs/s after 1 s", car2.phys.ForwardSpeed))
+	check(car2.phys.ForwardSpeed > 40, "pressing gas right after getting in drives off normally")
 end
 
 print("")

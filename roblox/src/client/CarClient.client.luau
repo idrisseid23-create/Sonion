@@ -90,6 +90,13 @@ local function startDriving(car: Model)
 		hud:OnCarEvent(name, data)
 		if name == "Respawned" then
 			camera:Snap()
+		elseif name == "Crashed" then
+			-- Ask for the ground around the respawn spot to be loaded before we land there
+			-- (far checkpoints can be streamed out on phones).
+			local spot = physics:GetRespawnSpot()
+			task.spawn(function()
+				pcall(player.RequestStreamAroundAsync, player, spot.Position, 1)
+			end)
 		end
 	end
 
@@ -104,7 +111,60 @@ local function startDriving(car: Model)
 		LastCheckpoint = nil,
 		CheckTimer = 0,
 		IgnoreTimer = 0,
+		Ready = false, -- true once this computer is running the car's physics
+		WaitTime = 0,
+		DrivenTime = 0,
+		SpinWarned = false,
 	}
+end
+
+-- True when this computer simulates the car (the server has handed it over).
+-- ReceiveAge is 0 for parts simulated here.
+local function ownsCar(chassis: BasePart): boolean
+	local ok, age = pcall(function()
+		return chassis.ReceiveAge
+	end)
+	return ok and age == 0
+end
+
+-- Driving starts once the car is ours: from a still, clean state, so nothing left over
+-- from getting in (or from the server) can spin or lift it.
+local function takeOver(current)
+	current.Ready = true
+	local chassis = current.Physics.Chassis
+	current.Physics:Settle()
+	local root = chassis.AssemblyRootPart
+	if root and root ~= chassis then
+		warn(string.format(
+			"[CarClient] The car is anchored to %s instead of its Chassis, so it may twist when you sit. Every car part except Chassis and Ballast should be Massless.",
+			root:GetFullName()
+		))
+	end
+end
+
+-- If the car turns by itself just after getting in, say so in the Output window with
+-- what the physics sees, so the cause can be found.
+local function watchForSpin(current, dt: number, state)
+	current.DrivenTime += dt
+	if current.SpinWarned or current.DrivenTime > 2 then
+		return
+	end
+	local chassis = current.Physics.Chassis
+	local idle = state.Throttle == 0 and state.Brake == 0 and math.abs(state.Steer) < 0.05
+	local spin = chassis.AssemblyAngularVelocity.Magnitude
+	if idle and spin > 1.5 then
+		current.SpinWarned = true
+		local root = chassis.AssemblyRootPart
+		warn(string.format(
+			"[CarClient] The car is spinning by itself after getting in: spin %.1f rad/s, velocity %s, wheels down %d, state %s, root %s, mass %.0f.",
+			spin,
+			tostring(chassis.AssemblyLinearVelocity),
+			current.Physics.GroundedWheels,
+			current.Physics.State,
+			if root then root:GetFullName() else "none",
+			chassis.AssemblyMass
+		))
+	end
 end
 
 -- Map pieces: parts tagged "CarCheckpoint" (front face pointing along the road) set your
@@ -155,7 +215,17 @@ RunService.PreSimulation:Connect(function(dt)
 				hud:ToggleDebug()
 			end
 
-			physics:Step(dt, state)
+			if not current.Ready then
+				-- Wait (up to a second) for the server to hand the car to this computer.
+				current.WaitTime += dt
+				if ownsCar(physics.Chassis) or current.WaitTime > 1 then
+					takeOver(current)
+				end
+			end
+			if current.Ready then
+				physics:Step(dt, state)
+				watchForSpin(current, dt, state)
+			end
 			hud:Update(physics)
 
 			current.CheckTimer += dt

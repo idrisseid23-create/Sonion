@@ -30,8 +30,10 @@ local Base = {
 	-- Sizes here are in studs: the cars are small and chunky, about two avatars long.
 	----------------------------------------------------------------------------------
 	Body = {
-		Size = Vector3.new(5.8, 2.4, 10.8), -- collision box of the lower body: width, height, length
-		CabinSize = Vector3.new(4.6, 3.05, 5.1), -- collision box of the cabin, on top of the body
+		-- Collision box of the lower body: width, height, length. Its bottom sits 1.2 studs up,
+		-- higher than the bodywork, so kerbs up to about a stud meet the wheels, not the body.
+		Size = Vector3.new(5.8, 1.6, 10.8),
+		CabinSize = Vector3.new(4.6, 3.45, 5.1), -- collision box of the cabin, on top of the body
 		CabinOffset = Vector3.new(0, 0, 1.8), -- + is towards the back
 		RoofHeight = 5.9, -- top of the car (the parcel) above the body centre
 	},
@@ -274,8 +276,8 @@ CarConfig.Cars = {
 		Name = "Mule",
 		-- Box van: white, tall cargo box with an orange stripe, dark grey underneath.
 		Body = {
-			Size = Vector3.new(6.6, 2.5, 11.4),
-			CabinSize = Vector3.new(6.3, 4.9, 8.6), -- the cargo box
+			Size = Vector3.new(6.6, 1.7, 11.4),
+			CabinSize = Vector3.new(6.3, 5.3, 8.6), -- the cargo box
 			CabinOffset = Vector3.new(0, 0, 1.4),
 			RoofHeight = 6.1,
 		},
@@ -314,8 +316,8 @@ CarConfig.Cars = {
 		Name = "Kite",
 		-- Stunt buggy: low cyan tub, white roll cage, open wheels, rear wing.
 		Body = {
-			Size = Vector3.new(6.4, 1.6, 9.8), -- as wide as the wheels: they hit walls first
-			CabinSize = Vector3.new(3.4, 3.4, 3.0), -- the roll cage
+			Size = Vector3.new(6.4, 1.2, 9.8), -- as wide as the wheels: they hit walls first
+			CabinSize = Vector3.new(3.4, 3.6, 3.0), -- the roll cage
 			CabinOffset = Vector3.new(0, 0, -0.2),
 			RoofHeight = 4.35,
 		},
